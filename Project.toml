@@ -1,0 +1,13 @@
+name = "Index1024"
+uuid = "01473c76-a456-4694-8a53-a290fc25633b"
+authors = ["Matt Lawless"]
+version = "0.1.0"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+julia = "1"
+
+[targets]
+test = ["Test"]
