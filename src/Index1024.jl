@@ -1,8 +1,8 @@
 module Index1024
 
-export Index, index_vector, get_node
+import Base.read, Base.write
 
-export testidx
+export Index, search, build_index_file, open_index
 
 const mask = 0xf000000000000000
 const shift = 60
@@ -10,8 +10,38 @@ const onpage = 0x1
 const topage = 0x2
 const leaf = 0x3
 const empty = 0xf
-const ff = ~UInt64(0)
+const ff = ~UInt64(0) >> 4
 
+const pages_per_block = 31
+
+const version = UInt16(1)
+
+struct Index
+    files::Vector{String}
+    io::IO
+    Index(files, io) = new(files, io)
+    Index(io::IO) = Index(Vector{String}(), io)
+end
+
+function write(io::IO, index::Index)
+    write(io, version) # version
+    write(io, UInt32(length(index.files)))
+    foreach(f->println(io, f), index.files)
+    nextblock(io)
+    position(io)
+end
+
+function read(io::IO, ::Type{Index})
+    @assert read(io, UInt16) == version
+    n = read(io, UInt32)
+    index = Index(io)
+    while n > 0
+        push!(index.files, readline(io))
+        n -= 1
+    end
+    nextblock(io)
+    index
+end
 
 abstract type Node end
 
@@ -27,209 +57,188 @@ end
 
 struct NodeInfo
     tagged_key::UInt64 # threshold or leaf value - determined by tag
-    child_count::UInt64
     value::Node
-    NodeInfo(key, children, value) = new(key, children, value)
+    NodeInfo(key, value) = new(key, value)
 end
 
 tag(t, v) = UInt64(v) | (UInt64(t) << shift)
-detag(n::NodeInfo) = detag(n.tagged_key)
-detag(v::UInt64) = UInt16((UInt64(v) & mask) >> shift)
+tag(n::NodeInfo) = tag(n.tagged_key)
+tag(v::UInt) = UInt16((UInt64(v) & mask) >> shift)
 key(n::NodeInfo) = key(n.tagged_key)
-key(v::UInt64) = UInt64(v) & ~mask
+key(v::UInt) = UInt64(v) & ~mask
 
 struct Page 
     nodes::Vector{NodeInfo}
-    Page() = Page(31)
-    Page(n) = new(Vector{NodeInfo}(undef, n))
+    Page() = Page(pages_per_block)
+    Page(n::Int) = Page(Vector{NodeInfo}(undef, n))
+    Page(ns::Vector{NodeInfo}) = new(ns)
 end
 
-struct Index
-    pages::Vector{Page}
-    Index(nitems) = new(Vector{Page}(undef, round(Int, ceil(nitems/16))))
+function read(io::IO, ::Type{Page})
+    p = Page(pages_per_block)
+    for i in 1:pages_per_block
+        p.nodes[i] = read(io, NodeInfo)
+    end
+    p
 end
 
-function build_leaf_page(ks, kvs)
+function build_page(ks, kvs, leaf_tag; aux=Dict())
     p = Page(31)
     
     k = 1
-    for pk in 16:31
+    for pk in 0x10:0x1f # 10:16
         # tag the key as a leaf (or empty), leaf the value
         if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(empty, ff), 0, Leaf(0, 0))
+            p.nodes[pk] = NodeInfo(tag(empty, ff), Leaf(0, 0))
         else
-            p.nodes[pk] = NodeInfo(tag(leaf, ks[k]), 0, Leaf(kvs[ks[k]], 0))
+            p.nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]], get(aux, ks[k], 0)))
         end
         k += 1
     end
 
     k = 1
-    for pk in 8:15
+    for pk in 0x08:0x0f # 8:15
         # tag the left key as a threshold, leaf the L & R
         if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(onpage, ff), 1, LR(2pk, 2pk+1))
+            p.nodes[pk] = NodeInfo(tag(onpage, ff), LR(2pk, 2pk+1))
         else
-            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), 2, LR(2pk, 2pk+1))
+            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(2pk, 2pk+1))
         end
         k += 2
     end
 
     k = 2
-    for pk in 4:7
+    for pk in 0x04:0x07
         # tag the left key as a threshold, leaf the L & R
         if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(onpage, ff), 2, LR(2pk, 2pk+1))
+            p.nodes[pk] = NodeInfo(tag(onpage, ff), LR(2pk, 2pk+1))
         else
-            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), 4, LR(2pk, 2pk+1))
+            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(2pk, 2pk+1))
         end
         k += 4
     end
 
     k = 4
-    for pk in 2:3
+    for pk in 0x02:0x03
         # tag the left key as a threshold, leaf the L & R
         if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(onpage, ff), 4, LR(2pk, 2pk+1))
+            p.nodes[pk] = NodeInfo(tag(onpage, ff), LR(2pk, 2pk+1))
         else
-            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), 8, LR(2pk, 2pk+1))
+            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(2pk, 2pk+1))
         end
         k += 8
     end
 
     if 8 > length(ks)
-        p.nodes[1] = NodeInfo(tag(onpage, ff), 8, LR(2, 3))
+        p.nodes[1] = NodeInfo(tag(onpage, ff), LR(2, 3))
     else
-        p.nodes[1] = NodeInfo(tag(onpage, ks[8]), 16, LR(2, 3))
+        p.nodes[1] = NodeInfo(tag(onpage, ks[8]), LR(2, 3))
     end
 
     p
 end
+"""
+    search(idx::Index, search_key::UInt64)::Union{Tuple{UInt64, UInt64}, Nothing}
+Search the given index for a given search_key returning a Tuple of the previously stored value / aux pair (or 0 for the aux if it wasn't supplied).
+If the search_key is not found, return nothing
+"""
+search(idx::Index, search_key)::Union{Tuple{UInt64, UInt64}, Nothing} = get_node(idx.io, UInt64(search_key))
 
-function get_node(key, p::Page)
-    n = p.nodes[1]
-    t = detag(n)
-    while t == onpage 
-        n = p.nodes[key < key(n) ? n.value.left : n.value.right]
-        t = detag(n)
+function get_node(io::IO, search_key)
+    reset(io)
+    mark(io)
+    page = read(io, Page)
+    node = page.nodes[1]
+    while tag(node) == onpage
+        node = search_key <= key(node) ? page.nodes[node.value.left] : page.nodes[node.value.right]
+        if tag(node) == topage
+            seek(io, node.value.data)
+            page = read(io, Page)
+            node = page.nodes[1]
+        end
     end
-    if t == topage
-        return n
+    if tag(node) == leaf && key(node) == search_key
+        return node.value.data, node.value.aux
     end
-    if t == leaf && key(n) == key
-        return n
-    end
-    nothing    
 end
 
-function build_leaf_pages!(idx, kvs)
+write(io::IO, n::LR) = write(io, n.left) + write(io, n.right)
+write(io::IO, n::Leaf) = write(io, n.data) + write(io, n.aux)
+write(io::IO, ni::NodeInfo) = write(io, ni.tagged_key) + write(io, ni.value)
+
+read(io::IO, ::Type{LR}) = LR(read(io, UInt64), read(io, UInt64))
+read(io::IO, ::Type{Leaf}) = Leaf(read(io, UInt64), read(io, UInt64))
+
+function read(io::IO, ::Type{NodeInfo})
+    tagged_key = read(io, UInt64)
+    t = tag(tagged_key)
+    if t == onpage
+        return NodeInfo(tagged_key, read(io, LR))
+    end
+    return NodeInfo(tagged_key, read(io, Leaf))
+end
+
+write(io::IO, p::Page) = reduce((a,n)->a+=write(io, n), p.nodes, init=0)
+
+function write_pages(io, sorted_keys, kvs, leaf_tag; aux=Dict())
+    node_count = round(Int, ceil(length(sorted_keys)/16))
+    next_sorted_keys = Vector{UInt64}(undef, node_count)
+    next_kvs = Dict{UInt64, UInt64}()
+    for i in 0:node_count-1
+        sks = @views length(sorted_keys) < 16i+16 ? sorted_keys[16i+1:end] : sorted_keys[16i+1:16i+16]
+        next_sorted_keys[i+1] = sks[end]
+        next_kvs[sks[end]] = position(io)
+        write(io, build_page(sks, kvs, leaf_tag; aux))
+    end
+    next_sorted_keys, next_kvs
+end
+
+function nextblock(io; blocksize=1024)
+    p = position(io)
+    if mod(p, blocksize) > 0
+        skip(io, blocksize - mod(p, blocksize))
+    end
+end
+"""
+    build_index_file(io::IO, filelist, kvs; aux=Dict())
+    build_index_file(filename::AbstractString, filelist, kvs; aux=Dict())
+
+Create the on-disk representation of the index of the kvs Dict.
+The Tree's Leaves are sorted by the key value of the kvs and store both the kvs[key] and aux[key] (if given)
+All keys and values are all converted to UInt64.
+"""
+function build_index_file(io::IO, filelist, kvs; aux=Dict())
+    write(io, UInt64(0)) # placeholder for root page offset
+    write(io, Index(filelist, io))
     sorted_keys = sort(collect(keys(kvs)))
-    for k in 0:length(idx.pages)-1
-        sks = @views length(sorted_keys) < 16k+16 ? sorted_keys[16k+1:end] : sorted_keys[16k+1:16k+16]
-        idx.pages[k+1] = build_leaf_page(sks, kvs)
+    next_sorted_keys, next_kvs = write_pages(io, sorted_keys, kvs, leaf; aux)
+    while length(next_sorted_keys) > 1
+        next_sorted_keys, next_kvs = write_pages(io, next_sorted_keys, next_kvs, topage; aux)
     end
-    1:length(idx.pages)
+    seek(io, 0)
+    write(io, next_kvs[next_sorted_keys[1]]) # root position
 end
 
-function node_count(n)
-    if n < 2
-        return 3
+function build_index_file(filename::AbstractString, filelist, kvs; aux=Dict())
+    open(filename, "w+") do io
+        build_index_file(io::IO, filelist, kvs; aux)
     end
-    if n < 4
-        return 9
-    end
-    if n < 8
-        return 17
-    end
-    if n < 16
-        return 31
-    end
-    throw("Too many values for a page")
 end
-
-function build_tree_page(topages) # pageno=>key
-    
-    k = 1
-    for pk in 16:31
-        # tag the key as a leaf (or empty), leaf the value
-        if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(empty, ff), 0, Leaf(0, 0))
-        else
-            p.nodes[pk] = NodeInfo(tag(topage, ks[k]), 0, Leaf(kvs[ks[k]], 0))
-        end
-        k += 1
-    end
-
-    k = 1
-    for pk in 8:15
-        # tag the left key as a threshold, leaf the L & R
-        if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(onpage, ff), 1, LR(2pk, 2pk+1))
-        else
-            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), 2, LR(2pk, 2pk+1))
-        end
-        k += 2
-    end
-
-    k = 2
-    for pk in 4:7
-        # tag the left key as a threshold, leaf the L & R
-        if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(onpage, ff), 2, LR(2pk, 2pk+1))
-        else
-            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), 4, LR(2pk, 2pk+1))
-        end
-        k += 4
-    end
-
-    k = 4
-    for pk in 2:3
-        # tag the left key as a threshold, leaf the L & R
-        if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(onpage, ff), 4, LR(2pk, 2pk+1))
-        else
-            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), 8, LR(2pk, 2pk+1))
-        end
-        k += 8
-    end
-
-    if 8 > length(ks)
-        p.nodes[1] = NodeInfo(tag(onpage, ff), 8, LR(2, 3))
-    else
-        p.nodes[1] = NodeInfo(tag(onpage, ks[8]), 16, LR(2, 3))
-    end
-
-    p
-end
-
-function build_tree_pages!(idx, prev_page_range)
-    topages = Dict()
-    for p in prev_page_range
-        topages[p] = key(idx.pages[p].nodes[1])
-    end
-
-    p1 = length(idx.pages)+1
-    new_page_count = round(Int, ceil(length(topages)/16))
-    append!(idx.pages, Vector{Page}(undef, new_page_count))
-    for k in 0:length(new_page_count)-1
-        idx.pages[p1+k] = build_tree_page(topages)
-    end
-
-    last(prev_level)+1:length(idx.pages)
-end
-
-function index_kvs(kvs)
-    sorted_keys = sort(collect(keys(kvs)))
-    idx = Index(length(sorted_keys))
-    page_range = build_leaf_pages!(idx, kvs)
-
-    while length(page_range) > 1
-        page_range = build_tree_pages!(idx, page_range)
-    end
+"""
+    open_index(filename::AbstractString)::Index
+    open_index(io::IO)::Index
+Create an Index struct on which one can perform searches using a previously created Index file.
+"""
+function open_index(io::IO)
+    seekstart(io)
+    root = read(io, UInt64)
+    idx = read(io, Index)
+    seek(io, root)
+    mark(io)
     idx
 end
 
-testidx() = index_kvs(Dict{UInt64, UInt64}(2k=>10k for k in 1:33))
-
+open_index(filename::AbstractString) = open_index(open(filename, "r"))
 
 ###
 end
