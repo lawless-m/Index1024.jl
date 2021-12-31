@@ -3,7 +3,7 @@ using Test
 
 import Base.==
 function ==(i1::Index, i2::Index)
-    i1.files == i2.files
+    i1.meta == i2.meta
 end
 
 function buff(size=3000)
@@ -40,9 +40,9 @@ end
 function rw_index1p()
     io = buff()
     idx = Index(io)
-    push!(idx.files, "file1")
-    push!(idx.files, "file2")
-    push!(idx.files, "file3")
+    push!(idx.meta, "file1")
+    push!(idx.meta, "file2")
+    push!(idx.meta, "file3")
     @assert write(io, idx) == 1024
     seek(io,0)
     idx == read(io, Index)
@@ -52,7 +52,7 @@ function rw_index()
     io = buff()
     idx = Index(io)
     for i in 1:256
-        push!(idx.files, "file$i")
+        push!(idx.meta, "file$i")
     end
     @assert write(io, idx) == 2048
     seek(io,0)
@@ -95,8 +95,7 @@ end
 function egtree()
     io = buff()
     entries = egtree_entries()
-    files = ["index1.csv", "index2.csv", "index3.csv"]
-    build_index_file(io, files, entries)
+    build_index_file(io, entries)
     open_index(io)
 end
 
@@ -110,15 +109,26 @@ function tget()
     get(idx, 0x54, 0) == (0x1540, 0) && get(idx, 0, "space") == "space"
 end
 
-function auxtest()
+function taux()
     io = buff()
     entries = egtree_entries()
     aux = Dict([k=>2entries[k] for k in collect(keys(entries))])
-    files = ["index1.csv", "index2.csv", "index3.csv"]
-    build_index_file(io, files, entries; aux)
+    build_index_file(io, entries; aux)
     idx = open_index(io)
     search(idx, 0x54) == (0x1540, UInt64(aux[0x54]))
 end
+
+function tmetaaux()
+    io = buff()
+    entries = egtree_entries()
+    aux = Dict([k=>2entries[k] for k in collect(keys(entries))])
+    meta = String["one", "two", "three"]
+    build_index_file(io, entries; meta, aux)
+    idx = open_index(io)
+    search(idx, 0x54) == (0x1540, UInt64(aux[0x54]))
+    idx.meta == meta
+end
+
 
 @testset "Index1024.jl" begin
     @test nb(0) == 0
@@ -130,5 +140,6 @@ end
     @test rw_index()
     @test tsearch()
     @test tget()
-    @test auxtest()
+    @test taux()
+    @test tmetaaux()
 end

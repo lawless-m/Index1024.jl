@@ -17,16 +17,16 @@ const pages_per_block = 31
 const version = UInt16(1)
 
 struct Index
-    files::Vector{String}
+    meta::Vector{String}
     io::IO
-    Index(files, io) = new(files, io)
+    Index(meta, io) = new(meta, io)
     Index(io::IO) = Index(Vector{String}(), io)
 end
 
 function write(io::IO, index::Index)
     write(io, version) # version
-    write(io, UInt32(length(index.files)))
-    foreach(f->println(io, f), index.files)
+    write(io, UInt32(length(index.meta)))
+    foreach(f->println(io, f), index.meta)
     nextblock(io)
     position(io)
 end
@@ -36,7 +36,7 @@ function read(io::IO, ::Type{Index})
     n = read(io, UInt32)
     index = Index(io)
     while n > 0
-        push!(index.files, readline(io))
+        push!(index.meta, readline(io))
         n -= 1
     end
     nextblock(io)
@@ -214,16 +214,19 @@ function nextblock(io; blocksize=1024)
     end
 end
 """
-    build_index_file(io::IO, filelist, kvs; aux=Dict())
-    build_index_file(filename::AbstractString, filelist, kvs; aux=Dict())
-
+    build_index_file(io::IO, kvs; meta=String[], aux=Dict())
+    build_index_file(filename::AbstractString, kvs; meta=String[], aux=Dict())
+#Arguments
+`io::IO` descriptor for writing (so you can use IOBuffer if desired)
+`meta::Vector{AbstractString}` vector of strings to add meta data
 Create the on-disk representation of the index of the kvs Dict.
 The Tree's Leaves are sorted by the key value of the kvs and store both the kvs[key] and aux[key] (if given)
 All keys and values are all converted to UInt64.
+
 """
-function build_index_file(io::IO, filelist, kvs; aux=Dict())
+function build_index_file(io::IO, kvs; meta=String[], aux=Dict())
     write(io, UInt64(0)) # placeholder for root page offset
-    write(io, Index(filelist, io))
+    write(io, Index(meta, io))
     sorted_keys = sort(collect(keys(kvs)))
     next_sorted_keys, next_kvs = write_pages(io, sorted_keys, kvs, leaf; aux)
     while length(next_sorted_keys) > 1
@@ -233,9 +236,9 @@ function build_index_file(io::IO, filelist, kvs; aux=Dict())
     write(io, next_kvs[next_sorted_keys[1]]) # root position
 end
 
-function build_index_file(filename::AbstractString, filelist, kvs; aux=Dict())
+function build_index_file(filename::AbstractString, kvs; meta=String[], aux=Dict())
     open(filename, "w+") do io
-        build_index_file(io::IO, filelist, kvs; aux)
+        build_index_file(io::IO, kvs; meta, aux)
     end
 end
 """
