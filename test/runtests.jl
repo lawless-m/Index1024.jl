@@ -68,7 +68,7 @@ function nb(n=0)
     position(io)
 end
 
-function vsearch()
+function egtree()
     io = buff()
     entries = Dict(
         0x10 => 0x1100,
@@ -94,8 +94,17 @@ function vsearch()
 
     files = ["index1.csv", "index2.csv", "index3.csv"]
     build_index_file(io, files, entries)
-    idx = open_index(io)
+    open_index(io)
+end
+
+function tsearch()
+    idx = egtree()
     search(idx, 0x54) == (0x1540, 0) && search(idx, 0) === nothing
+end
+
+function tget()
+    idx = egtree()
+    get(idx, 0x54, 0) == (0x1540, 0) && get(idx, 0, "space") == "space"
 end
 
 @testset "Index1024.jl" begin
@@ -106,5 +115,6 @@ end
     @test rw_empty_index()
     @test rw_index1p()
     @test rw_index()
-    @test vsearch()
+    @test tsearch()
+    @test tget()
 end

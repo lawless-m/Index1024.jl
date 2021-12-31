@@ -2,7 +2,7 @@ module Index1024
 
 import Base.read, Base.write
 
-export Index, search, build_index_file, open_index
+export Index, search, build_index_file, open_index, get
 
 const mask = 0xf000000000000000
 const shift = 60
@@ -143,6 +143,20 @@ Search the given index for a given search_key returning a Tuple of the previousl
 If the search_key is not found, return nothing
 """
 search(idx::Index, search_key)::Union{Tuple{UInt64, UInt64}, Nothing} = get_node(idx.io, UInt64(search_key))
+
+import Base.get
+"""
+    get(idx::Index, search_key, default)
+Search the given index for a given search_key returning a Tuple of the previously stored value / aux pair (or 0 for the aux if it wasn't supplied).
+If the search_key is not found, return the supplied default
+"""
+function get(idx::Index, search_key, default)
+    tpl = get_node(idx.io, UInt64(search_key))
+    if tpl === nothing
+        return default
+    end
+    return tpl
+end
 
 function get_node(io::IO, search_key)
     reset(io)

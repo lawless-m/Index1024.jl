@@ -11,3 +11,6 @@ open_index
 ```@docs
 search
 ```
+```@docs
+get
+```
