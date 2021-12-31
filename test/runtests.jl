@@ -68,9 +68,8 @@ function nb(n=0)
     position(io)
 end
 
-function egtree()
-    io = buff()
-    entries = Dict(
+function egtree_entries()
+    Dict(
         0x10 => 0x1100,
         0x12 => 0x2120,
         0x13 => 0x1130,
@@ -91,7 +90,11 @@ function egtree()
         0x57 => 0x3570,
         0x59 => 0x1590
     )
+end
 
+function egtree()
+    io = buff()
+    entries = egtree_entries()
     files = ["index1.csv", "index2.csv", "index3.csv"]
     build_index_file(io, files, entries)
     open_index(io)
@@ -107,6 +110,16 @@ function tget()
     get(idx, 0x54, 0) == (0x1540, 0) && get(idx, 0, "space") == "space"
 end
 
+function auxtest()
+    io = buff()
+    entries = egtree_entries()
+    aux = Dict([k=>2entries[k] for k in collect(keys(entries))])
+    files = ["index1.csv", "index2.csv", "index3.csv"]
+    build_index_file(io, files, entries; aux)
+    idx = open_index(io)
+    search(idx, 0x54) == (0x1540, UInt64(aux[0x54]))
+end
+
 @testset "Index1024.jl" begin
     @test nb(0) == 0
     @test nb(1) == 1024
@@ -117,4 +130,5 @@ end
     @test rw_index()
     @test tsearch()
     @test tget()
+    @test auxtest()
 end
