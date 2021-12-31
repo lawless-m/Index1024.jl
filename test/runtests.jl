@@ -15,8 +15,8 @@ end
 
 function rw_leafnode()
     io = buff()
-    ni = Index1024.NodeInfo(Index1024.tag(Index1024.leaf, 0x01), Index1024.Leaf(1, 0))
-    @assert write(io, ni) == 24
+    ni = Index1024.NodeInfo(Index1024.tag(Index1024.leaf, 0x01), Index1024.Leaf(1))#, 0))
+    @assert write(io, ni) == 16
     seek(io, 0)
     ni == read(io, Index1024.NodeInfo)
 end
@@ -24,7 +24,7 @@ end
 function rw_lrnode()
     io = buff()
     ni = Index1024.NodeInfo(Index1024.tag(Index1024.onpage, 0x0), Index1024.LR(1,2))
-    @assert write(io, ni) == 24
+    @assert write(io, ni) == 10
     seek(io, 0)
     ni == read(io, Index1024.NodeInfo)
 end
@@ -101,31 +101,22 @@ end
 
 function tsearch()
     idx = egtree()
-    search(idx, 0x54) == (0x1540, 0) && search(idx, 0) === nothing
+    search(idx, 0x54) == 0x1540 && search(idx, 0) === nothing
 end
 
 function tget()
     idx = egtree()
-    get(idx, 0x54, 0) == (0x1540, 0) && get(idx, 0, "space") == "space"
+    get(idx, 0x54, 0) == 0x1540 && get(idx, 0, "space") == "space"
 end
 
-function taux()
-    io = buff()
-    entries = egtree_entries()
-    aux = Dict([k=>2entries[k] for k in collect(keys(entries))])
-    build_index_file(io, entries; aux)
-    idx = open_index(io)
-    search(idx, 0x54) == (0x1540, UInt64(aux[0x54]))
-end
 
-function tmetaaux()
+function tmeta()
     io = buff()
     entries = egtree_entries()
-    aux = Dict([k=>2entries[k] for k in collect(keys(entries))])
     meta = String["one", "two", "three"]
-    build_index_file(io, entries; meta, aux)
+    build_index_file(io, entries; meta)
     idx = open_index(io)
-    search(idx, 0x54) == (0x1540, UInt64(aux[0x54]))
+    search(idx, 0x54) == 0x1540
     idx.meta == meta
 end
 
@@ -140,6 +131,5 @@ end
     @test rw_index()
     @test tsearch()
     @test tget()
-    @test taux()
-    @test tmetaaux()
+    @test tmeta()
 end

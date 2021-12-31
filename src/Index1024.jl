@@ -46,13 +46,12 @@ end
 abstract type Node end
 
 struct LR <: Node
-    left::UInt64
-    right::UInt64
+    left::UInt8
+    right::UInt8
 end
 
 struct Leaf <: Node
     data::UInt64
-    aux::UInt64
 end
 
 struct NodeInfo
@@ -82,16 +81,16 @@ function read(io::IO, ::Type{Page})
     p
 end
 
-function build_page(ks, kvs, leaf_tag; aux=Dict())
+function build_page(ks, kvs, leaf_tag)
     p = Page(31)
     
     k = 1
     for pk in 0x10:0x1f # 10:16
         # tag the key as a leaf (or empty), leaf the value
         if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(empty, ff), Leaf(0, 0))
+            p.nodes[pk] = NodeInfo(tag(empty, ff), Leaf(0))
         else
-            p.nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]], get(aux, ks[k], 0)))
+            p.nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]]))
         end
         k += 1
     end
@@ -138,16 +137,16 @@ function build_page(ks, kvs, leaf_tag; aux=Dict())
     p
 end
 """
-    search(idx::Index, search_key::UInt64)::Union{Tuple{UInt64, UInt64}, Nothing}
-Search the given index for a given search_key returning a Tuple of the previously stored value / aux pair (or 0 for the aux if it wasn't supplied).
+    search(idx::Index, search_key::UInt64)::Union{UInt64, Nothing}
+Search the given index for a given search_key returning a Tuple of the previously stored value
 If the search_key is not found, return nothing
 """
-search(idx::Index, search_key)::Union{Tuple{UInt64, UInt64}, Nothing} = get_node(idx.io, UInt64(search_key))
+search(idx::Index, search_key) = get_node(idx.io, UInt64(search_key))
 
 import Base.get
 """
     get(idx::Index, search_key, default)
-Search the given index for a given search_key returning a Tuple of the previously stored value / aux pair (or 0 for the aux if it wasn't supplied).
+Search the given index for a given search_key returning a Tuple of the previously stored value
 If the search_key is not found, return the supplied default
 """
 function get(idx::Index, search_key, default)
@@ -172,16 +171,16 @@ function get_node(io::IO, search_key)
         end
     end
     if tag(node) == leaf && key(node) == search_key
-        return node.value.data, node.value.aux
+        return node.value.data
     end
 end
 
 write(io::IO, n::LR) = write(io, n.left) + write(io, n.right)
-write(io::IO, n::Leaf) = write(io, n.data) + write(io, n.aux)
+write(io::IO, n::Leaf) = write(io, n.data)
 write(io::IO, ni::NodeInfo) = write(io, ni.tagged_key) + write(io, ni.value)
 
-read(io::IO, ::Type{LR}) = LR(read(io, UInt64), read(io, UInt64))
-read(io::IO, ::Type{Leaf}) = Leaf(read(io, UInt64), read(io, UInt64))
+read(io::IO, ::Type{LR}) = LR(read(io, UInt8), read(io, UInt8))
+read(io::IO, ::Type{Leaf}) = Leaf(read(io, UInt64)) #, read(io, UInt64))
 
 function read(io::IO, ::Type{NodeInfo})
     tagged_key = read(io, UInt64)
@@ -194,7 +193,7 @@ end
 
 write(io::IO, p::Page) = reduce((a,n)->a+=write(io, n), p.nodes, init=0)
 
-function write_pages(io, sorted_keys, kvs, leaf_tag; aux=Dict())
+function write_pages(io, sorted_keys, kvs, leaf_tag)
     node_count = round(Int, ceil(length(sorted_keys)/16))
     next_sorted_keys = Vector{UInt64}(undef, node_count)
     next_kvs = Dict{UInt64, UInt64}()
@@ -202,7 +201,8 @@ function write_pages(io, sorted_keys, kvs, leaf_tag; aux=Dict())
         sks = @views length(sorted_keys) < 16i+16 ? sorted_keys[16i+1:end] : sorted_keys[16i+1:16i+16]
         next_sorted_keys[i+1] = sks[end]
         next_kvs[sks[end]] = position(io)
-        write(io, build_page(sks, kvs, leaf_tag; aux))
+        s = write(io, build_page(sks, kvs, leaf_tag))
+        #println(stderr, "Page size $s")
     end
     next_sorted_keys, next_kvs
 end
@@ -214,31 +214,31 @@ function nextblock(io; blocksize=1024)
     end
 end
 """
-    build_index_file(io::IO, kvs; meta=String[], aux=Dict())
-    build_index_file(filename::AbstractString, kvs; meta=String[], aux=Dict())
+    build_index_file(io::IO, kvs; meta=String[])
+    build_index_file(filename::AbstractString, kvs; meta=String[])
 #Arguments
 `io::IO` descriptor for writing (so you can use IOBuffer if desired)
 `meta::Vector{AbstractString}` vector of strings to add meta data
 Create the on-disk representation of the index of the kvs Dict.
-The Tree's Leaves are sorted by the key value of the kvs and store both the kvs[key] and aux[key] (if given)
+The Tree's Leaves are sorted by the key value of the kvs and store the kvs[key] 
 All keys and values are all converted to UInt64.
 
 """
-function build_index_file(io::IO, kvs; meta=String[], aux=Dict())
+function build_index_file(io::IO, kvs; meta=String[])
     write(io, UInt64(0)) # placeholder for root page offset
     write(io, Index(meta, io))
     sorted_keys = sort(collect(keys(kvs)))
-    next_sorted_keys, next_kvs = write_pages(io, sorted_keys, kvs, leaf; aux)
+    next_sorted_keys, next_kvs = write_pages(io, sorted_keys, kvs, leaf)
     while length(next_sorted_keys) > 1
-        next_sorted_keys, next_kvs = write_pages(io, next_sorted_keys, next_kvs, topage; aux)
+        next_sorted_keys, next_kvs = write_pages(io, next_sorted_keys, next_kvs, topage)
     end
     seek(io, 0)
     write(io, next_kvs[next_sorted_keys[1]]) # root position
 end
 
-function build_index_file(filename::AbstractString, kvs; meta=String[], aux=Dict())
+function build_index_file(filename::AbstractString, kvs; meta=String[])
     open(filename, "w+") do io
-        build_index_file(io::IO, kvs; meta, aux)
+        build_index_file(io::IO, kvs; meta)
     end
 end
 """
