@@ -17,3 +17,5 @@ I might index the CSV file, or not, that's not relevant to the index, the leaf n
 
 [![Build Status](https://github.com/lawless-m/Index1024.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/lawless-m/Index1024.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
+https://lawless-m.github.io/Index1024.jl/
+
