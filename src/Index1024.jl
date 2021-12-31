@@ -14,7 +14,7 @@ const ff = ~UInt64(0) >> 4
 
 const pages_per_block = 31
 
-const version = UInt16(1)
+const version = UInt16(2)
 
 struct Index
     meta::Vector{String}
