@@ -47,6 +47,7 @@ abstract type Node end
 
 struct Leaf <: Node
     data::UInt64
+    aux::UInt64
 end
 
 struct Empty <: Node end
@@ -78,7 +79,7 @@ function build_page(ks, kvs, leaf_tag)
         if k > length(ks)
             nodes[pk] = NodeInfo(tag(empty, ff), Empty())
         else
-            nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]]))
+            nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]].data, kvs[ks[k]].aux))
         end
         k += kstep
     end
@@ -134,17 +135,17 @@ function get_node(io::IO, search_key)
         end
     end
     if tag(node) == leaf && key(node) == search_key
-        return node.value.data
+        return (data=node.value.data, aux=node.value.aux)
     end
 end
 
 write(io::IO, n::LR) = write(io, n.left) + write(io, n.right)
-write(io::IO, n::Leaf) = write(io, n.data)
+write(io::IO, n::Leaf) = write(io, n.data) + write(io, n.aux)
 write(io::IO, n::Empty) = 0
 write(io::IO, ni::NodeInfo) = write(io, ni.tagged_key) + write(io, ni.value)
 
 read(io::IO, ::Type{LR}) = LR(read(io, NodeInfo), read(io, NodeInfo))
-read(io::IO, ::Type{Leaf}) = Leaf(read(io, UInt64)) #, read(io, UInt64))
+read(io::IO, ::Type{Leaf}) = Leaf(read(io, UInt64), read(io, UInt64))
 
 function read(io::IO, ::Type{NodeInfo})
     tagged_key = read(io, UInt64)
@@ -162,12 +163,12 @@ function write_pages(io, sorted_keys, kvs, leaf_tag)
     leafcount = 32
     node_count = round(Int, ceil(length(sorted_keys)/(leafcount)))
     next_sorted_keys = Vector{UInt64}(undef, node_count)
-    next_kvs = Dict{UInt64, UInt64}()
+    next_kvs = typeof(kvs)()
     for i in 0:node_count-1
         lstart = leafcount * i
         sks = @views length(sorted_keys) < lstart+leafcount ? sorted_keys[lstart+1:end] : sorted_keys[lstart+1:lstart+leafcount]
         next_sorted_keys[i+1] = sks[end]
-        next_kvs[sks[end]] = position(io)
+        next_kvs[sks[end]] = (data=position(io), aux=0)
         root = build_page(sks, kvs, leaf_tag)
         s = write(io, root)
         println(stderr, "Nodes size $s")
@@ -202,7 +203,7 @@ function build_index_file(io::IO, kvs; meta=String[])
         next_sorted_keys, next_kvs = write_pages(io, next_sorted_keys, next_kvs, topage)
     end
     seek(io, 0)
-    write(io, next_kvs[next_sorted_keys[1]]) # root position
+    write(io, next_kvs[next_sorted_keys[1]].data) # root position
 end
 
 function build_index_file(filename::AbstractString, kvs; meta=String[])
@@ -237,6 +238,8 @@ end
 function show(io::IO, lr::Leaf)
     print(io, " Data:")
     show(io, lr.data)
+    print(io, " Aux:")
+    show(io, lr.aux)
 end
 
 function show(io::IO, ni::NodeInfo)

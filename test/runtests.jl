@@ -15,8 +15,8 @@ end
 
 function rw_leafnode()
     io = buff()
-    ni = Index1024.NodeInfo(Index1024.tag(Index1024.leaf, 0x01), Index1024.Leaf(1))#, 0))
-    @assert write(io, ni) == 16
+    ni = Index1024.NodeInfo(Index1024.tag(Index1024.leaf, 0x01), Index1024.Leaf(1, 0))
+    @assert write(io, ni) == 24
     seek(io, 0)
     ni == read(io, Index1024.NodeInfo)
 end
@@ -62,25 +62,25 @@ end
 
 function egtree_entries()
     Dict(
-        0x10 => 0x1100,
-        0x12 => 0x2120,
-        0x13 => 0x1130,
-        0x15 => 0x3150,
-        0x17 => 0x1170,
-        0x18 => 0x2180,
-        0x20 => 0x3200,
-        0x25 => 0x1250,
-        0x29 => 0x2290,
-        0x31 => 0x3310,
-        0x36 => 0x3360,
-        0x38 => 0x2380,
-        0x40 => 0x1400,
-        0x43 => 0x2430,
-        0x46 => 0x2460,
-        0x50 => 0x3500,
-        0x54 => 0x1540,
-        0x57 => 0x3570,
-        0x59 => 0x1590
+        0x10 => (data=0x100,aux=0x1000),
+        0x12 => (data=0x120,aux=0x2000),
+        0x13 => (data=0x130,aux=0x1000),
+        0x15 => (data=0x150,aux=0x3000),
+        0x17 => (data=0x170,aux=0x1000),
+        0x18 => (data=0x180,aux=0x2000),
+        0x20 => (data=0x200,aux=0x3000),
+        0x25 => (data=0x250,aux=0x1000),
+        0x29 => (data=0x290,aux=0x2000),
+        0x31 => (data=0x310,aux=0x3000),
+        0x36 => (data=0x360,aux=0x3000),
+        0x38 => (data=0x380,aux=0x2000),
+        0x40 => (data=0x400,aux=0x1000),
+        0x43 => (data=0x430,aux=0x2000),
+        0x46 => (data=0x460,aux=0x2000),
+        0x50 => (data=0x500,aux=0x3000),
+        0x54 => (data=0x540,aux=0x1000),
+        0x57 => (data=0x570,aux=0x3000),
+        0x59 => (data=0x590,aux=0x1000)
     )
 end
 
@@ -95,12 +95,12 @@ end
 
 function tsearch()
     idx = egtree()
-    search(idx, 0x54) == 0x1540 && search(idx, 0) === nothing
+    search(idx, 0x54) == (data=0x540, aux=0x1000) && search(idx, 0) === nothing
 end
 
 function tget()
     idx = egtree()
-    get(idx, 0x54, 0) == 0x1540 && get(idx, 0, "space") == "space"
+    get(idx, 0x54, 0) == (data=0x540, aux=0x1000) && get(idx, 0, "space") == "space"
 end
 
 function tmeta()
