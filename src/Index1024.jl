@@ -2,6 +2,8 @@ module Index1024
 
 import Base.read, Base.write
 
+using Printf
+
 export Index, search, build_index_file, open_index, get
 
 const mask = 0xf000000000000000
@@ -123,9 +125,11 @@ function get(idx::Index, search_key, default)
     return tpl
 end
 
+rewind(idx::Index) = rewind(idx.io)
+rewind(io::IO) = begin reset(io); mark(io); end
+
 function get_node(io::IO, search_key)
-    reset(io)
-    mark(io)
+    rewind(io)
     node = read(io, NodeInfo)
     while tag(node) == onpage
         node = search_key <= key(node) ? node.value.left : node.value.right
@@ -242,11 +246,45 @@ function show(io::IO, lr::Leaf)
 end
 
 function show(io::IO, ni::NodeInfo)
+   
     print(io, " Key:")
     show(io, ni.tagged_key)
+
     print(io, " Node:")
     show(io, ni.value)
 end
 
+function show(io::IO, idx::Index)
+    rewind(idx)
+    show(io, read(idx.io, NodeInfo))
+end
+
+function todot(io::IO, ni::NodeInfo, level)
+    if tag(ni) == onpage
+        @printf(io, "X%d_%x [shape=invhouse, label=\"0x%x\"]\n ", level, ni.tagged_key, key(ni.tagged_key))
+        @printf(io, "X%d_%x -> X%d_%x [label=\"<= 0x%x\"]\n ", level, ni.tagged_key, level+1, ni.value.left.tagged_key, key(ni.value.left.tagged_key))
+        @printf(io, "X%d_%x -> X%d_%x [label=\"> 0x%x\"]\n ", level, ni.tagged_key, level+1, ni.value.right.tagged_key, key(ni.value.right.tagged_key))
+        todot(io, ni.value.left, level+1)
+        todot(io, ni.value.right, level+1)
+    elseif tag(ni) == topage
+        @printf(io, "X%d_%x [shape=invtriangle, label=\"offset: 0x%x\"]\n ", level, ni.tagged_key, ni.value.data)
+    elseif tag(ni) == leaf
+        @printf(io, "X%d_%x [shape=rect, label=\"key: 0x%x data: 0x%x aux: 0x%x\"]\n ", level, ni.tagged_key, key(ni.tagged_key), ni.value.data,ni.value.aux)
+    end
+end
+
+function todot(idx::Index)
+    rewind(idx)
+    buff = IOBuffer()
+    write(buff, "digraph I { \n")
+    todot(buff, read(idx.io, NodeInfo), 0)
+    write(buff, "}")
+    seekstart(buff)
+    read(buff, String)
+end
+
+function show(io::IO, m::MIME{Symbol("text/dot")}, idx::Index)
+    show(io, todot(idx))
+end
 ###
 end
