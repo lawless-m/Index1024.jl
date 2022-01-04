@@ -21,14 +21,6 @@ function rw_leafnode()
     ni == read(io, Index1024.NodeInfo)
 end
 
-function rw_lrnode()
-    io = buff()
-    ni = Index1024.NodeInfo(Index1024.tag(Index1024.onpage, 0x0), Index1024.LR(1,2))
-    @assert write(io, ni) == 10
-    seek(io, 0)
-    ni == read(io, Index1024.NodeInfo)
-end
-
 function rw_empty_index()
     io = buff()
     idx = Index(io)
@@ -92,8 +84,10 @@ function egtree_entries()
     )
 end
 
-function egtree()
-    io = buff()
+function egtree(io=nothing)
+    if io === nothing
+        io = buff()
+    end
     entries = egtree_entries()
     build_index_file(io, entries)
     open_index(io)
@@ -108,7 +102,6 @@ function tget()
     idx = egtree()
     get(idx, 0x54, 0) == 0x1540 && get(idx, 0, "space") == "space"
 end
-
 
 function tmeta()
     io = buff()
@@ -125,11 +118,11 @@ end
     @test nb(0) == 0
     @test nb(1) == 1024
     @test rw_leafnode()
-    @test rw_lrnode()
     @test rw_empty_index()
     @test rw_index1p()
     @test rw_index()
     @test tsearch()
     @test tget()
-    @test tmeta()
+    @test tmeta() 
+
 end

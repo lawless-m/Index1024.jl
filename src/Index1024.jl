@@ -45,19 +45,21 @@ end
 
 abstract type Node end
 
-struct LR <: Node
-    left::UInt8
-    right::UInt8
-end
-
 struct Leaf <: Node
     data::UInt64
 end
+
+struct Empty <: Node end
 
 struct NodeInfo
     tagged_key::UInt64 # threshold or leaf value - determined by tag
     value::Node
     NodeInfo(key, value) = new(key, value)
+end
+
+struct LR <: Node
+    left::NodeInfo
+    right::NodeInfo
 end
 
 tag(t, v) = UInt64(v) | (UInt64(t) << shift)
@@ -66,31 +68,18 @@ tag(v::UInt) = UInt16((UInt64(v) & mask) >> shift)
 key(n::NodeInfo) = key(n.tagged_key)
 key(v::UInt) = UInt64(v) & ~mask
 
-struct Page 
-    nodes::Vector{NodeInfo}
-    Page() = Page(pages_per_block)
-    Page(n::Int) = Page(Vector{NodeInfo}(undef, n))
-    Page(ns::Vector{NodeInfo}) = new(ns)
-end
 
-function read(io::IO, ::Type{Page})
-    p = Page(pages_per_block)
-    for i in 1:pages_per_block
-        p.nodes[i] = read(io, NodeInfo)
-    end
-    p
-end
 
 function build_page(ks, kvs, leaf_tag)
-    p = Page(31)
+    nodes = Vector{NodeInfo}(undef, 31)
     
     k = 1
-    for pk in 0x10:0x1f # 10:16
+    for pk in 0x10:0x1f # 10:31
         # tag the key as a leaf (or empty), leaf the value
         if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(empty, ff), Leaf(0))
+            nodes[pk] = NodeInfo(tag(empty, ff), Empty())
         else
-            p.nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]]))
+            nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]]))
         end
         k += 1
     end
@@ -99,9 +88,9 @@ function build_page(ks, kvs, leaf_tag)
     for pk in 0x08:0x0f # 8:15
         # tag the left key as a threshold, leaf the L & R
         if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(onpage, ff), LR(2pk, 2pk+1))
+            nodes[pk] = NodeInfo(tag(onpage, ff), LR(nodes[2pk], nodes[2pk+1]))
         else
-            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(2pk, 2pk+1))
+            nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(nodes[2pk], nodes[2pk+1]))
         end
         k += 2
     end
@@ -110,9 +99,9 @@ function build_page(ks, kvs, leaf_tag)
     for pk in 0x04:0x07
         # tag the left key as a threshold, leaf the L & R
         if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(onpage, ff), LR(2pk, 2pk+1))
+            nodes[pk] = NodeInfo(tag(onpage, ff), LR(nodes[2pk], nodes[2pk+1]))
         else
-            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(2pk, 2pk+1))
+            nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(nodes[2pk], nodes[2pk+1]))
         end
         k += 4
     end
@@ -121,20 +110,20 @@ function build_page(ks, kvs, leaf_tag)
     for pk in 0x02:0x03
         # tag the left key as a threshold, leaf the L & R
         if k > length(ks)
-            p.nodes[pk] = NodeInfo(tag(onpage, ff), LR(2pk, 2pk+1))
+            nodes[pk] = NodeInfo(tag(onpage, ff), LR(nodes[2pk], nodes[2pk+1]))
         else
-            p.nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(2pk, 2pk+1))
+            nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(nodes[2pk], nodes[2pk+1]))
         end
         k += 8
     end
 
     if 8 > length(ks)
-        p.nodes[1] = NodeInfo(tag(onpage, ff), LR(2, 3))
+        nodes[1] = NodeInfo(tag(onpage, ff), LR(nodes[2], nodes[3]))
     else
-        p.nodes[1] = NodeInfo(tag(onpage, ks[8]), LR(2, 3))
+        nodes[1] = NodeInfo(tag(onpage, ks[8]), LR(nodes[2], nodes[3]))
     end
 
-    p
+    nodes[1]
 end
 """
     search(idx::Index, search_key::UInt64)::Union{UInt64, Nothing}
@@ -160,14 +149,12 @@ end
 function get_node(io::IO, search_key)
     reset(io)
     mark(io)
-    page = read(io, Page)
-    node = page.nodes[1]
+    node = read(io, NodeInfo)
     while tag(node) == onpage
-        node = search_key <= key(node) ? page.nodes[node.value.left] : page.nodes[node.value.right]
+        node = search_key <= key(node) ? node.value.left : node.value.right
         if tag(node) == topage
             seek(io, node.value.data)
-            page = read(io, Page)
-            node = page.nodes[1]
+            node = read(io, NodeInfo)
         end
     end
     if tag(node) == leaf && key(node) == search_key
@@ -177,9 +164,10 @@ end
 
 write(io::IO, n::LR) = write(io, n.left) + write(io, n.right)
 write(io::IO, n::Leaf) = write(io, n.data)
+write(io::IO, n::Empty) = 0
 write(io::IO, ni::NodeInfo) = write(io, ni.tagged_key) + write(io, ni.value)
 
-read(io::IO, ::Type{LR}) = LR(read(io, UInt8), read(io, UInt8))
+read(io::IO, ::Type{LR}) = LR(read(io, NodeInfo), read(io, NodeInfo))
 read(io::IO, ::Type{Leaf}) = Leaf(read(io, UInt64)) #, read(io, UInt64))
 
 function read(io::IO, ::Type{NodeInfo})
@@ -188,10 +176,11 @@ function read(io::IO, ::Type{NodeInfo})
     if t == onpage
         return NodeInfo(tagged_key, read(io, LR))
     end
+    if t == empty
+        return NodeInfo(tagged_key, Empty())
+    end
     return NodeInfo(tagged_key, read(io, Leaf))
 end
-
-write(io::IO, p::Page) = reduce((a,n)->a+=write(io, n), p.nodes, init=0)
 
 function write_pages(io, sorted_keys, kvs, leaf_tag)
     node_count = round(Int, ceil(length(sorted_keys)/16))
@@ -201,8 +190,9 @@ function write_pages(io, sorted_keys, kvs, leaf_tag)
         sks = @views length(sorted_keys) < 16i+16 ? sorted_keys[16i+1:end] : sorted_keys[16i+1:16i+16]
         next_sorted_keys[i+1] = sks[end]
         next_kvs[sks[end]] = position(io)
-        s = write(io, build_page(sks, kvs, leaf_tag))
-        #println(stderr, "Page size $s")
+        root = build_page(sks, kvs, leaf_tag)
+        s = write(io, root)
+        #println(stderr, "Nodes size $s")
     end
     next_sorted_keys, next_kvs
 end
@@ -256,6 +246,26 @@ function open_index(io::IO)
 end
 
 open_index(filename::AbstractString) = open_index(open(filename, "r"))
+
+import Base.show
+
+function show(io::IO, lr::LR)
+    print(io, " (Left:", lr.left)
+    print(io, " Right:", lr.right)
+    print(io, ")")
+end
+
+function show(io::IO, lr::Leaf)
+    print(io, " Data:")
+    show(io, lr.data)
+end
+
+function show(io::IO, ni::NodeInfo)
+    print(io, " Key:")
+    show(io, ni.tagged_key)
+    print(io, " Node:")
+    show(io, ni.value)
+end
 
 ###
 end
