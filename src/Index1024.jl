@@ -68,59 +68,35 @@ tag(v::UInt) = UInt16((UInt64(v) & mask) >> shift)
 key(n::NodeInfo) = key(n.tagged_key)
 key(v::UInt) = UInt64(v) & ~mask
 
-
-
 function build_page(ks, kvs, leaf_tag)
-    nodes = Vector{NodeInfo}(undef, 31)
-    
+    next2pow::Int = Int(1 << (64 - (leading_zeros(length(ks)-1))+1))
+    nodes = Vector{NodeInfo}(undef, next2pow-1)
+    kstep = 1
     k = 1
-    for pk in 0x10:0x1f # 10:31
+    for pk in (next2pow>>1):(next2pow-1) # e.g. 0x10:0x1f
         # tag the key as a leaf (or empty), leaf the value
         if k > length(ks)
             nodes[pk] = NodeInfo(tag(empty, ff), Empty())
         else
             nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]]))
         end
-        k += 1
+        k += kstep
     end
 
-    k = 1
-    for pk in 0x08:0x0f # 8:15
-        # tag the left key as a threshold, leaf the L & R
-        if k > length(ks)
-            nodes[pk] = NodeInfo(tag(onpage, ff), LR(nodes[2pk], nodes[2pk+1]))
-        else
-            nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(nodes[2pk], nodes[2pk+1]))
+    while next2pow > 2
+        next2pow >>= 1
+        kstep *= 2
+    
+        k = 1
+        for pk in (next2pow>>1):(next2pow-1) # 8:15
+            # tag the left key as a threshold, leaf the L & R
+            if k > length(ks)
+                nodes[pk] = NodeInfo(tag(onpage, ff), LR(nodes[2pk], nodes[2pk+1]))
+            else
+                nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(nodes[2pk], nodes[2pk+1]))
+            end
+            k += kstep
         end
-        k += 2
-    end
-
-    k = 2
-    for pk in 0x04:0x07
-        # tag the left key as a threshold, leaf the L & R
-        if k > length(ks)
-            nodes[pk] = NodeInfo(tag(onpage, ff), LR(nodes[2pk], nodes[2pk+1]))
-        else
-            nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(nodes[2pk], nodes[2pk+1]))
-        end
-        k += 4
-    end
-
-    k = 4
-    for pk in 0x02:0x03
-        # tag the left key as a threshold, leaf the L & R
-        if k > length(ks)
-            nodes[pk] = NodeInfo(tag(onpage, ff), LR(nodes[2pk], nodes[2pk+1]))
-        else
-            nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(nodes[2pk], nodes[2pk+1]))
-        end
-        k += 8
-    end
-
-    if 8 > length(ks)
-        nodes[1] = NodeInfo(tag(onpage, ff), LR(nodes[2], nodes[3]))
-    else
-        nodes[1] = NodeInfo(tag(onpage, ks[8]), LR(nodes[2], nodes[3]))
     end
 
     nodes[1]
@@ -183,17 +159,20 @@ function read(io::IO, ::Type{NodeInfo})
 end
 
 function write_pages(io, sorted_keys, kvs, leaf_tag)
-    node_count = round(Int, ceil(length(sorted_keys)/16))
+    leafcount = 32
+    node_count = round(Int, ceil(length(sorted_keys)/(leafcount)))
     next_sorted_keys = Vector{UInt64}(undef, node_count)
     next_kvs = Dict{UInt64, UInt64}()
     for i in 0:node_count-1
-        sks = @views length(sorted_keys) < 16i+16 ? sorted_keys[16i+1:end] : sorted_keys[16i+1:16i+16]
+        lstart = leafcount * i
+        sks = @views length(sorted_keys) < lstart+leafcount ? sorted_keys[lstart+1:end] : sorted_keys[lstart+1:lstart+leafcount]
         next_sorted_keys[i+1] = sks[end]
         next_kvs[sks[end]] = position(io)
         root = build_page(sks, kvs, leaf_tag)
         s = write(io, root)
         println(stderr, "Nodes size $s")
     end
+
     next_sorted_keys, next_kvs
 end
 
