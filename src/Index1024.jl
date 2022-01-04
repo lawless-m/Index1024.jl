@@ -159,8 +159,7 @@ function read(io::IO, ::Type{NodeInfo})
     return NodeInfo(tagged_key, read(io, Leaf))
 end
 
-function write_pages(io, sorted_keys, kvs, leaf_tag)
-    leafcount = 16
+function write_pages(io, sorted_keys, kvs, leaf_tag; leafcount=16)
     node_count = round(Int, ceil(length(sorted_keys)/(leafcount)))
     next_sorted_keys = Vector{UInt64}(undef, node_count)
     next_kvs = typeof(kvs)()
