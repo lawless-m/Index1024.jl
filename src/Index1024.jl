@@ -192,7 +192,7 @@ function write_pages(io, sorted_keys, kvs, leaf_tag)
         next_kvs[sks[end]] = position(io)
         root = build_page(sks, kvs, leaf_tag)
         s = write(io, root)
-        #println(stderr, "Nodes size $s")
+        println(stderr, "Nodes size $s")
     end
     next_sorted_keys, next_kvs
 end
