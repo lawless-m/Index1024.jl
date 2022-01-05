@@ -64,9 +64,9 @@ end
 kval(k) = UInt64(k+mod(k,7))
 kdata(k) = UInt64(10k)
 kaux(k) = UInt64(1000*(1+mod(k,3)))
-ktup(k) = (data=kdata(k), aux=kaux(k))
+ktup(k) = (kdata(k), kaux(k))
 
-egtree_entries(n=16) = Dict([kval(k)=>(data=kdata(k), aux=kaux(k)) for k in 1:n])
+egtree_entries(n=16) = Dict([kval(k)=>(kdata(k), kaux(k)) for k in 1:n])
 
 function egtree(n=16)
     io = buff()

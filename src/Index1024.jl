@@ -206,7 +206,7 @@ function build_index_file(io::IO, kvs; meta=String[])
         next_sorted_keys, next_kvs = write_pages(io, next_sorted_keys, next_kvs, topage)
     end
     seek(io, 0)
-    write(io, next_kvs[next_sorted_keys[1]].data) # root position
+    write(io, next_kvs[next_sorted_keys[1]][1]) # root position
 end
 
 function build_index_file(filename::AbstractString, kvs; meta=String[])
