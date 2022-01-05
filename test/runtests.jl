@@ -64,9 +64,9 @@ end
 kval(k) = UInt64(k+mod(k,7))
 kdata(k) = UInt64(10k)
 kaux(k) = UInt64(1000*(1+mod(k,3)))
-ktup(k) = (kdata(k), kaux(k))
+ktup(k) = (data=kdata(k), aux=kaux(k))
 
-egtree_entries(n=16) = Dict([kval(k)=>(kdata(k), kaux(k)) for k in 1:n])
+egtree_entries(n=16) = Dict([kval(k)=>(data=kdata(k), aux=kaux(k)) for k in 1:n])
 
 function egtree(n=16)
     io = buff()
@@ -90,15 +90,6 @@ function tmeta(n=16)
     search(idx, kval(n)) == ktup(n)
     idx.meta == meta
 end
-
-function tsearch_range()
-    k = 14
-    while tsearch_exists(k) == ktup(k) && k < 10_000_000
-        k <<= 8
-    end
-    k
-end
-
 
 @testset "Index1024.jl" begin
     @test nb(0) == 0
