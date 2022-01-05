@@ -81,7 +81,7 @@ function build_page(ks, kvs, leaf_tag)
         if k > length(ks)
             nodes[pk] = NodeInfo(tag(empty, ff), Empty())
         else
-            nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]].data, kvs[ks[k]].aux))
+            nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]][1], kvs[ks[k]][2]))
         end
         k += kstep
     end
@@ -91,14 +91,11 @@ function build_page(ks, kvs, leaf_tag)
         next2pow >>= 1
         kstep *= 2
         k = kstep >> 1
-       # println(stderr, "next2pow $next2pow kstep $kstep k $k")
         for pk in (next2pow>>1):(next2pow-1) # 8:15
             # tag the left key as a threshold, leaf the L & R
             if k > length(ks)
-               # println(stderr, Int(pk), " L <= ff ")
                 nodes[pk] = NodeInfo(tag(onpage, ff), LR(nodes[2pk], nodes[2pk+1]))
             else
-               # println(stderr, Int(pk), " L <= ks[$k] =", ks[k])
                 nodes[pk] = NodeInfo(tag(onpage, ks[k]), LR(nodes[2pk], nodes[2pk+1]))
             end
             k += kstep
@@ -142,7 +139,7 @@ function get_node(io::IO, search_key)
         end
     end
     if tag(node) == leaf && key(node) == search_key
-        return (data=node.value.data, aux=node.value.aux)
+        return (node.value.data, node.value.aux)
     end
 end
 
@@ -174,7 +171,7 @@ function write_pages(io, sorted_keys, kvs, leaf_tag; leafcount=16)
         lstart = leafcount * i
         sks = @views length(sorted_keys) < lstart+leafcount ? sorted_keys[lstart+1:end] : sorted_keys[lstart+1:lstart+leafcount]
         next_sorted_keys[i+1] = sks[end]
-        next_kvs[sks[end]] = (data=position(io), aux=0)
+        next_kvs[sks[end]] = (position(io), 0)
         root = build_page(sks, kvs, leaf_tag)
         s = write(io, root)
         #println(stderr, "Nodes size $s")
@@ -264,15 +261,15 @@ end
 
 function todot(io::IO, ni::NodeInfo, level)
     if tag(ni) == onpage
-        @printf(io, "X%d_%x [shape=invhouse, label=\"0x%x\"]\n ", level, ni.tagged_key, key(ni.tagged_key))
-        @printf(io, "X%d_%x -> X%d_%x [label=\"<= 0x%x\"]\n ", level, ni.tagged_key, level+1, ni.value.left.tagged_key, key(ni.value.left.tagged_key))
+        @printf(io, "X%d_%x [shape=invhouse, label=\"0x%x0..0%02x\"]\n ", level, ni.tagged_key, tag(ni.tagged_key), key(ni.tagged_key))
+        @printf(io, "X%d_%x -> X%d_%x [label=\"<= 0x%02x\"]\n ", level, ni.tagged_key, level+1, ni.value.left.tagged_key, key(ni.tagged_key))
         @printf(io, "X%d_%x -> X%d_%x\n ", level, ni.tagged_key, level+1, ni.value.right.tagged_key)
         todot(io, ni.value.left, level+1)
         todot(io, ni.value.right, level+1)
     elseif tag(ni) == topage
         @printf(io, "X%d_%x [shape=invtriangle, label=\"offset: 0x%x\"]\n ", level, ni.tagged_key, ni.value.data)
     elseif tag(ni) == leaf
-        @printf(io, "X%d_%x [shape=rect, label=\"key: 0x%x\ndata: 0x%x\naux: 0x%x\"]\n ", level, ni.tagged_key, key(ni.tagged_key), ni.value.data,ni.value.aux)
+        @printf(io, "X%d_%x [shape=rect, label=\"key: 0x%x0..0%02x\ndata: 0x%x\naux: 0x%x\"]\n ", level, ni.tagged_key, tag(ni.tagged_key), key(ni.tagged_key), ni.value.data,ni.value.aux)
     end
 end
 
