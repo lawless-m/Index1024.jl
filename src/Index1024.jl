@@ -18,6 +18,8 @@ const pages_per_block = 31
 
 const version = UInt16(2)
 
+const DataAux = typeof((data=zero(UInt64), aux=zero(UInt64)))
+
 struct Index
     meta::Vector{String}
     io::IO
