@@ -77,7 +77,6 @@ function build_page(ks, kvs, leaf_tag)
     kstep = 1
     k = 1
     for pk in (next2pow>>1):(next2pow-1) # e.g. 0x10:0x1f
-        # tag the key as a leaf (or empty), leaf the value
         if k > length(ks)
             nodes[pk] = NodeInfo(tag(empty, ff), Empty())
         else
@@ -91,8 +90,7 @@ function build_page(ks, kvs, leaf_tag)
         next2pow >>= 1
         kstep *= 2
         k = kstep >> 1
-        for pk in (next2pow>>1):(next2pow-1) # 8:15
-            # tag the left key as a threshold, leaf the L & R
+        for pk in (next2pow>>1):(next2pow-1)
             if k > length(ks)
                 nodes[pk] = NodeInfo(tag(onpage, ff), LR(nodes[2pk], nodes[2pk+1]))
             else
@@ -195,9 +193,9 @@ end
 Create the on-disk representation of the index of the kvs Dict.
 The Tree's Leaves are sorted by the key value of the kvs and store the kvs[key] 
 All keys and values are all converted to UInt64.
-
 """
 function build_index_file(io::IO, kvs; meta=String[])
+    pos = position(io)
     write(io, UInt64(0)) # placeholder for root page offset
     write(io, Index(meta, io))
     sorted_keys = sort(collect(keys(kvs)))
@@ -205,8 +203,9 @@ function build_index_file(io::IO, kvs; meta=String[])
     while length(next_sorted_keys) > 1
         next_sorted_keys, next_kvs = write_pages(io, next_sorted_keys, next_kvs, topage)
     end
-    seek(io, 0)
+    seek(io, pos)
     write(io, next_kvs[next_sorted_keys[1]].data) # root position
+    return pos
 end
 
 function build_index_file(filename::AbstractString, kvs; meta=String[])
@@ -219,8 +218,7 @@ end
     open_index(io::IO)::Index
 Create an Index struct on which one can perform searches using a previously created Index file.
 """
-function open_index(io::IO)
-    seekstart(io)
+function open_index(io::IO) ## assume at position of root offset field
     root = read(io, UInt64)
     idx = read(io, Index)
     seek(io, root)
