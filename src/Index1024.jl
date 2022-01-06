@@ -216,7 +216,9 @@ function build_index_file(io::IO, kvs; meta=String[])
     while length(next_sorted_keys) > 1
         next_sorted_keys, next_kvs = write_pages(io, next_sorted_keys, next_kvs, topage)
     end
-    position(io) - startpos
+    size = position(io) - startpos
+    seek(io, startpos)
+    return size
 end
 
 function build_index_file(filename::AbstractString, kvs; meta=String[])
@@ -230,7 +232,7 @@ end
 Create an Index struct on which one can perform searches using a previously created Index file.
 """
 open_index(io::IO) = read(io, Index)
-open_index(filename::AbstractString) = open(open_index, filename, "r"))
+open_index(filename::AbstractString) = open(open_index, filename, "r")
 
 import Base.show
 
@@ -285,8 +287,5 @@ function todot(idx::Index)
     read(buff, String)
 end
 
-function show(io::IO, m::MIME{Symbol("text/dot")}, idx::Index)
-    show(io, todot(idx))
-end
 ###
 end
