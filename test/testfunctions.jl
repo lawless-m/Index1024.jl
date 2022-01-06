@@ -4,7 +4,6 @@ function ==(i1::Index, i2::Index)
     i1.meta == i2.meta
 end
 
-
 function buff(size=3000)
     io = IOBuffer()
     write(io, [UInt8(1) for _ in 1:size])
@@ -66,28 +65,28 @@ ktup(k) = (data=kdata(k), aux=kaux(k))
 
 egtree_entries(n=16) = Dict([kval(k)=>(data=kdata(k), aux=kaux(k)) for k in 1:n])
 
-function egtree(n=16)
+function egtree(n=16; padding=0)
     io = buff()
+    print(io, repeat("p", padding))
+    tree_pos = position(io)
     entries = egtree_entries(n)
     build_index_file(io, entries)
     open_index(io)
 end
 
-tsearch_exists(n) = search(egtree(n), kval(n))
+tsearch_exists(n; padding=0) = search(egtree(n; padding), kval(n))
 tsearch_fails(n) = search(egtree(n), 0)
 
-tget_exists(n) = get(egtree(n), kval(n), 0)
+tget_exists(n; padding=0) = get(egtree(n; padding), kval(n), 0)
 tget_fails(n) = get(egtree(n), 0x0, 0)
-
 
 function tmeta(n=16)
     io = buff()
     entries = egtree_entries(n)
     meta = String["one", "two", "three"]
     build_index_file(io, entries; meta)
+    seekstart(io)
     idx = open_index(io)
     search(idx, kval(n)) == ktup(n)
     idx.meta == meta
 end
-
-

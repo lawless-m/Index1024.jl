@@ -116,6 +116,7 @@ function build_page(ks, kvs, leaf_tag)
 
     nodes[1]
 end
+
 """
     search(idx::Index, search_key::UInt64)::Union{UInt64, Nothing}
 Search the given index for a given search_key returning a Tuple of the previously stored value
@@ -184,9 +185,7 @@ function write_pages(io, sorted_keys, kvs, leaf_tag; leafcount=16)
         sks = @views length(sorted_keys) < lstart+leafcount ? sorted_keys[lstart+1:end] : sorted_keys[lstart+1:lstart+leafcount]
         next_sorted_keys[i+1] = sks[end]
         next_kvs[sks[end]] = (data=position(io), aux=0)
-        root = build_page(sks, kvs, leaf_tag)
-        s = write(io, root)
-        #println(stderr, "Nodes size $s")
+        write(io, build_page(sks, kvs, leaf_tag))
     end
 
     next_sorted_keys, next_kvs
@@ -198,6 +197,7 @@ function nextblock(io; blocksize=1024)
         skip(io, blocksize - mod(p, blocksize))
     end
 end
+
 """
     build_index_file(io::IO, kvs; meta=String[])
     build_index_file(filename::AbstractString, kvs; meta=String[])
@@ -210,6 +210,7 @@ All keys and values are all converted to UInt64.
 """
 function build_index_file(io::IO, kvs; meta=String[])
     startpos = position(io)
+    write(io, zero(Int64)) # middle of page where root node starts
     write(io, Index(meta, io))
     sorted_keys = sort(collect(keys(kvs)))
     next_sorted_keys, next_kvs = write_pages(io, sorted_keys, kvs, leaf)
@@ -217,6 +218,8 @@ function build_index_file(io::IO, kvs; meta=String[])
         next_sorted_keys, next_kvs = write_pages(io, next_sorted_keys, next_kvs, topage)
     end
     size = position(io) - startpos
+    seek(io, startpos)
+    write(io, next_kvs[next_sorted_keys[1]].data)
     seek(io, startpos)
     return size
 end
@@ -226,13 +229,21 @@ function build_index_file(filename::AbstractString, kvs; meta=String[])
         build_index_file(io::IO, kvs; meta)
     end
 end
+
 """
     open_index(filename::AbstractString)::Index
     open_index(io::IO)::Index
 Create an Index struct on which one can perform searches using a previously created Index file.
 """
-open_index(io::IO) = read(io, Index)
-open_index(filename::AbstractString) = open(open_index, filename, "r")
+function open_index(io::IO)
+    root = read(io, Int64)
+    idx = read(io, Index)
+    seek(io, root)
+    mark(io)
+    idx
+end
+
+open_index(filename::AbstractString) = open_index(open(filename, "r"))
 
 import Base.show
 
@@ -250,7 +261,6 @@ function show(io::IO, lr::Leaf)
 end
 
 function show(io::IO, ni::NodeInfo)
-   
     print(io, " Key:")
     show(io, ni.tagged_key)
 
