@@ -4,7 +4,7 @@ import Base.read, Base.write
 
 using Printf
 
-export Index, search, build_index_file, open_index, get
+export Index, search, build_index_file, open_index, get, nextblock
 
 const mask = 0xf000000000000000
 const shift = 60
@@ -16,7 +16,18 @@ const ff = ~UInt64(0) >> 4
 
 const pages_per_block = 31
 
-const version = UInt16(2)
+const version = UInt16(3)
+#==
+Offset Contents
+000000 UInt16(version)
+000002 UInt32(length(meta))
+000... Meta lines
+
+Nextblock multiple of 0x400
+
+000000 page1
+
+==#
 
 const DataAux = typeof((data=zero(UInt64), aux=zero(UInt64)))
 
@@ -37,13 +48,14 @@ end
 
 function read(io::IO, ::Type{Index})
     @assert read(io, UInt16) == version
-    n = read(io, UInt32)
+    metacount = read(io, UInt32)
     index = Index(io)
-    while n > 0
+    while metacount > 0
         push!(index.meta, readline(io))
-        n -= 1
+        metacount -= 1
     end
     nextblock(io)
+    mark(io)
     index
 end
 
@@ -197,17 +209,14 @@ The Tree's Leaves are sorted by the key value of the kvs and store the kvs[key]
 All keys and values are all converted to UInt64.
 """
 function build_index_file(io::IO, kvs; meta=String[])
-    pos = position(io)
-    write(io, UInt64(0)) # placeholder for root page offset
+    startpos = position(io)
     write(io, Index(meta, io))
     sorted_keys = sort(collect(keys(kvs)))
     next_sorted_keys, next_kvs = write_pages(io, sorted_keys, kvs, leaf)
     while length(next_sorted_keys) > 1
         next_sorted_keys, next_kvs = write_pages(io, next_sorted_keys, next_kvs, topage)
     end
-    seek(io, pos)
-    write(io, next_kvs[next_sorted_keys[1]].data) # root position
-    return pos
+    position(io) - startpos
 end
 
 function build_index_file(filename::AbstractString, kvs; meta=String[])
@@ -220,15 +229,8 @@ end
     open_index(io::IO)::Index
 Create an Index struct on which one can perform searches using a previously created Index file.
 """
-function open_index(io::IO) ## assume at position of root offset field
-    root = read(io, UInt64)
-    idx = read(io, Index)
-    seek(io, root)
-    mark(io)
-    idx
-end
-
-open_index(filename::AbstractString) = open_index(open(filename, "r"))
+open_index(io::IO) = read(io, Index)
+open_index(filename::AbstractString) = open(open_index, filename, "r"))
 
 import Base.show
 
