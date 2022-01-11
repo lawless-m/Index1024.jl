@@ -181,6 +181,7 @@ function write_pages(io, sorted_keys, kvs, leaf_tag; leafcount=16)
     next_sorted_keys = Vector{UInt64}(undef, node_count)
     next_kvs = typeof(kvs)()
     for i in 0:node_count-1
+        nextblock(io)
         lstart = leafcount * i
         sks = @views length(sorted_keys) < lstart+leafcount ? sorted_keys[lstart+1:end] : sorted_keys[lstart+1:lstart+leafcount]
         next_sorted_keys[i+1] = sks[end]
