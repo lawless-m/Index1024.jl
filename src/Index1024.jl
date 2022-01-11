@@ -4,7 +4,7 @@ import Base.read, Base.write
 
 using Printf
 
-export Index, search, build_index_file, open_index, get, nextblock
+export Index, search, build_index_file, open_index, get
 
 const mask = 0xf000000000000000
 const shift = 60
@@ -42,7 +42,6 @@ function write(io::IO, index::Index)
     write(io, version) # version
     write(io, UInt32(length(index.meta)))
     foreach(f->println(io, f), index.meta)
-    nextblock(io)
     position(io)
 end
 
@@ -54,7 +53,6 @@ function read(io::IO, ::Type{Index})
         push!(index.meta, readline(io))
         metacount -= 1
     end
-    nextblock(io)
     mark(io)
     index
 end
@@ -181,7 +179,6 @@ function write_pages(io, sorted_keys, kvs, leaf_tag; leafcount=16)
     next_sorted_keys = Vector{UInt64}(undef, node_count)
     next_kvs = typeof(kvs)()
     for i in 0:node_count-1
-        nextblock(io)
         lstart = leafcount * i
         sks = @views length(sorted_keys) < lstart+leafcount ? sorted_keys[lstart+1:end] : sorted_keys[lstart+1:lstart+leafcount]
         next_sorted_keys[i+1] = sks[end]
@@ -192,8 +189,7 @@ function write_pages(io, sorted_keys, kvs, leaf_tag; leafcount=16)
     next_sorted_keys, next_kvs
 end
 
-function nextblock(io; blocksize=1024) # made things worse
-    return
+function nextblock(io; blocksize=1024)  # no longer used
     p = position(io)
     if mod(p, blocksize) > 0
         skip(io, blocksize - mod(p, blocksize))
