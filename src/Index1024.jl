@@ -192,7 +192,8 @@ function write_pages(io, sorted_keys, kvs, leaf_tag; leafcount=16)
     next_sorted_keys, next_kvs
 end
 
-function nextblock(io; blocksize=1024)
+function nextblock(io; blocksize=1024) # made things worse
+    return
     p = position(io)
     if mod(p, blocksize) > 0
         skip(io, blocksize - mod(p, blocksize))
