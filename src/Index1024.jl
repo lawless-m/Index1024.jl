@@ -4,7 +4,7 @@ import Base.read, Base.write
 
 using Printf
 
-export Index, search, build_index_file, open_index, get
+export Index, search, build_index_file, open_index, get, get_node, get_leaf
 
 const mask = 0xf000000000000000
 const shift = 60
@@ -120,7 +120,7 @@ end
 Search the given index for a given search_key returning a Tuple of the previously stored value
 If the search_key is not found, return nothing
 """
-search(idx::Index, search_key) = get_node(idx.io, UInt64(search_key))
+search(idx::Index, search_key) = get_node(idx, UInt64(search_key))
 
 import Base.get
 """
@@ -129,7 +129,7 @@ Search the given index for a given search_key returning a Tuple of the previousl
 If the search_key is not found, return the supplied default
 """
 function get(idx::Index, search_key, default)
-    tpl = get_node(idx.io, UInt64(search_key))
+    tpl = get_node(idx, UInt64(search_key))
     if tpl === nothing
         return default
     end
@@ -139,19 +139,78 @@ end
 rewind(idx::Index) = rewind(idx.io)
 rewind(io::IO) = begin reset(io); mark(io); end
 
-function get_node(io::IO, search_key)
-    rewind(io)
-    node = read(io, NodeInfo)
+function root_node(idx::Index)
+    rewind(idx.io)
+    read(idx.io, NodeInfo)
+end
+
+function get_leaf(idx::Index, search_key)
+    page = node = root_node(idx::Index)
     while tag(node) == onpage
         node = search_key <= key(node) ? node.value.left : node.value.right
         if tag(node) == topage
-            seek(io, node.value.data)
-            node = read(io, NodeInfo)
+            seek(idx.io, node.value.data)
+            page = node = read(idx.io, NodeInfo)
         end
     end
-    if tag(node) == leaf && key(node) == search_key
+    if tag(node) == leaf
+        return (node, page)
+    end
+    return (nothing, page)
+end
+
+function get_node(idx::Index, search_key)
+    (node, page) = get_leaf(idx, search_key)
+    if node !== nothing && key(node) == search_key
         return (data=node.value.data, aux=node.value.aux)
     end
+end
+
+function page_nodes(idx, page, min_key, max_key)
+
+    nodes = NodeInfo[]
+    leafs = Dict{UInt64, Node}()
+    pages = NodeInfo[]
+
+    function add_leaf(nde)
+        k = key(nde)
+        if min_key <= k <= max_key
+            leafs[k] = nde.value
+        end
+    end
+
+    add_onpage(nde) = push!(nodes, nde)
+    function add_topage(nde)
+        seek(idx.io, nde.value.data)
+        push!(pages, read(idx.io, NodeInfo))
+    end
+
+    vt = Dict(leaf=>add_leaf, onpage =>add_onpage, topage=>add_topage)
+
+    dvt(nde) = get(vt, tag(nde), (n)->nothing)(nde)
+
+    dvt(page.value.left)
+    dvt(page.value.right)
+
+    while length(nodes) > 0
+        node = pop!(nodes)
+        dvt(node.value.left)
+        dvt(node.value.right)
+    end
+    leafs, pages
+end
+
+function node_range(idx::Index, min_key, max_key)
+    page = root_node(idx)
+    range_leafs, unseen_pages = page_nodes(idx, page, min_key, max_key)
+    k = 0
+    while length(unseen_pages) > 0
+        page = pop!(unseen_pages)
+        page_leafs, more_unseen_pages = page_nodes(idx, page, min_key, max_key)
+        merge!(range_leafs, page_leafs)
+        append!(unseen_pages, more_unseen_pages)
+    end
+    range_leafs
 end
 
 write(io::IO, n::LR) = write(io, n.left) + write(io, n.right)
