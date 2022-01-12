@@ -4,7 +4,7 @@ import Base.read, Base.write
 
 using Printf
 
-export Index, search, build_index_file, open_index, get, get_node, get_leaf
+export Index, search, build_index_file, open_index, get, get_node, get_leaf, node_range
 
 const mask = 0xf000000000000000
 const shift = 60
@@ -203,7 +203,7 @@ end
 function node_range(idx::Index, min_key, max_key)
     page = root_node(idx)
     range_leafs, unseen_pages = page_nodes(idx, page, min_key, max_key)
-    k = 0
+    
     while length(unseen_pages) > 0
         page = pop!(unseen_pages)
         page_leafs, more_unseen_pages = page_nodes(idx, page, min_key, max_key)
