@@ -40,8 +40,8 @@ Nextblock multiple of 0x400
     DataAux
 Type of the leaf data. (data=UInt64, aux=UInt64)
 # Named elements
-`data::UInt64` - user supplied
-`aux::UInt64` - user supplied
+- `data::UInt64` user supplied
+- `aux::UInt64` user supplied
 """
 const DataAux = typeof((data=zero(UInt64), aux=zero(UInt64)))
 
@@ -49,8 +49,8 @@ const DataAux = typeof((data=zero(UInt64), aux=zero(UInt64)))
     Index
 struct to hold the data associated with a particular `Index`
 # Properties
-`meta::Vector{String}` - user defined meta-data to save in the index file
-`io::IO` - the file handle of the index used to navigate
+- `meta::Vector{String}` user defined meta-data to save in the index file
+- `io::IO` the file handle of the index used to navigate
 """
 struct Index
     meta::Vector{String}
@@ -109,9 +109,9 @@ key(v::UInt) = UInt64(v) & ~mask
 Using the given keys `ks` use the key/values in `ks` to generate the tree for this page. 
 The page is the same structure whether the terminals are leafs or "pointers"
 # Arguments
-`ks` - UInt64 keys to write in the terminals (a fixed size per page)
-`kvs` - the key / value dictionary containing all of the UInt64 => DataAux pairs
-`leaf_tag` - the UInt8 Tag applied to the keys of the terminals
+- `ks` UInt64 keys to write in the terminals (a fixed size per page)
+- `kvs` the key / value dictionary containing all of the UInt64 => DataAux pairs
+- `leaf_tag` the UInt8 Tag applied to the keys of the terminals
 """
 function build_page(ks, kvs, leaf_tag)
     next2pow::Int = Int(1 << (64 - (leading_zeros(length(ks)-1))+1))
@@ -149,6 +149,9 @@ end
     search(idx::Index, search_key::UInt64)::Union{UInt64, Nothing}
 Search the given index for a given search_key returning a Tuple of the previously stored value
 If the search_key is not found, return nothing
+# Arguments
+- `idx` Index to use
+- `search_key` UInt64 key to search for
 """
 function search(idx::Index, search_key)
     node = get_leaf(idx, search_key)
@@ -160,9 +163,9 @@ import Base.get
     get(idx::Index, search_key, default)
 Search the given index for a given `search_key` returning a Tuple of the previously stored value or the `default`
 # Arguments
-`idx` - Index to search
-`search_key` - untagged UInt64 key to search for
-`default` - what to return if the key is not found
+- `idx` Index to search
+- `search_key` untagged UInt64 key to search for
+- `default` what to return if the key is not found
 """
 function get(idx::Index, search_key, default)
     da = search(idx, UInt64(search_key))
@@ -181,8 +184,8 @@ end
     get_leaf(idx::Index, search_key)
 Search the tree for a particular leaf node and return it (or nothing)
 # Arguments
-`idx` - and Index to search
-`search_key` - an untagged UInt64 key to seach for
+- `idx` an Index to search
+- `search_key` an untagged UInt64 key to search for
 """
 function get_leaf(idx::Index, search_key)
     node = root_node(idx::Index)
@@ -201,9 +204,9 @@ end
     page_nodes(idx, page, min_key, max_key)
 Walk the entire page, a return the leafs and topage Nodes in separate lists
 # Arguments
-`idx` Index of the tree, needed for io
-`page` first node of the given page
-`min_key`, `max_key` range of keys for the leafs wanted
+- `idx` Index of the tree, needed for io
+- `page` first node of the given page
+- `min_key`, `max_key` range of keys for the Leafs wanted
 """
 function page_nodes(idx, page, min_key, max_key)
 
@@ -241,7 +244,7 @@ end
 
 """
     node_range(idx::Index, min_key, max_key)
-Gather all the leafs in a given `idx` where `min_key <= key <= max_key`
+Gather all the Leafs in a given `idx` where `min_key <= key <= max_key`
 """
 function node_range(idx::Index, min_key, max_key)
     page = root_node(idx)
@@ -281,11 +284,11 @@ end
 Write the current depth of the tree to disk, depth first.
 Returns the keys at the root of each page in order and generates the kvs to use as DataAux values
 # Arguments
-`io` - write into this IO
-`sorted_keys` - keys to use in the terminals, in order
-`kvs` - Dict of the values to use in the terminals
-`terminal_tag` - Tag the terminals with terminal_tag (which will be either leaf or topage)
-`terminalcount` - write this many terminals, which might be more than the number of keys
+- `io` - write into this IO
+- `sorted_keys` keys to use in the terminals, in order
+- `kvs` Dict of the values to use in the terminals
+- `terminal_tag` Tag the terminals with `terminal_tag`` (which will be either `leaf` or `topage`)
+- `terminalcount` write this many terminals, which might be more than the number of keys
 """
 function write_pages(io, sorted_keys, kvs, terminal_tag; terminalcount=16)
     node_count = round(Int, ceil(length(sorted_keys)/(terminalcount)))
@@ -312,12 +315,13 @@ end
 """
     build_index_file(io::IO, kvs; meta=String[])
     build_index_file(filename::AbstractString, kvs; meta=String[])
-# Arguments
-`io::IO` descriptor for writing (so you can use IOBuffer if desired)
-`kvs` - Dict{UInt64, T}() where T is the type of the leaf, by default DataAux - might expand in future
-`meta::Vector{AbstractString}` vector of strings to add meta data
 Create the on-disk representation of the index of the kvs Dict.
 The Leafs are sorted by the key values of the kvs.
+# Arguments
+- `io::IO` descriptor for writing (so you can use IOBuffer if desired)
+- `kvs` Dict{UInt64, T}() where T is the type of the leaf, by default DataAux - might expand in future
+- `meta::Vector{AbstractString}` vector of strings to add meta data
+
 """
 build_index_file(filename::AbstractString, kvs; meta=String[]) = open(filename, "w+") do io build_index_file(io::IO, kvs; meta) end
 
