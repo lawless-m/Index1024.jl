@@ -68,9 +68,9 @@ end</code></pre><p>It&#39;s not really necessary to understand how all that work
   0x00594f2038395945 =&gt; (data = 0x0000000000000136, aux = 0x0000000000000009)
   ⋮
   0x00414c3130304142 =&gt; (data = 0x0000000000000536, aux = 0x0000000000000027)
-  0x00594f2038395944 =&gt; (data = 0x0000000000000bfa, aux = 0x0000000000000013)</code></pre><p>The keys are the encoded postcodes e.g.</p><p><code>&quot;AL10 0AB&quot;</code> becomes <code>0x00414c3130304142</code> and at offset 0x536 in the CSV files, has 27 rows of data</p><p>Which is the format of the keyset we need to build the actual index.</p><p>That part of the process is in the modules</p><pre><code class="nohighlight hljs">julia&gt; @time build_index_file(&quot;Postcode_Year_Price.index&quot;, create_kvs(&quot;pc_year_price.csv&quot;))
+  0x00594f2038395944 =&gt; (data = 0x0000000000000bfa, aux = 0x0000000000000013)</code></pre><p>The keys are the encoded postcodes e.g.</p><p><code>&quot;AL10 0AB&quot;</code> becomes <code>0x00414c3130304142</code> and at offset 0x536 in the CSV files, has 0x27 rows of data</p><p>Which is the format of the keyset we need to build the actual index.</p><p>That part of the process is in the modules</p><pre><code class="nohighlight hljs">julia&gt; @time build_index_file(&quot;Postcode_Year_Price.index&quot;, create_kvs(&quot;pc_year_price.csv&quot;))
  10.181108 seconds (83.94 M allocations: 6.096 GiB, 10.57% gc time)
-42453022</code></pre><p><code>build_index_file</code> returns the number of bytes written</p><p>So now in my pwd() is the index file</p><p><code>42453022 Jan 18 13:56 Postcode_Year_Price.index</code></p><p>At 41M it is only a bit smaller than the 256M of pc<em>year</em>price.csv but to explore it, we don&#39;t need to have it in memory.</p><p>What we do need, though, are some accessor functions. </p><p>If we open the index we get</p><pre><code class="nohighlight hljs">julia&gt; idx = open_index(&quot;Postcode_Year_Price.index&quot;)
+42453022</code></pre><p><code>build_index_file</code> returns the number of bytes written</p><p>So now in my pwd() is the index file</p><p><code>42453022 Jan 18 13:56 Postcode_Year_Price.index</code></p><p>At 41M it is only a bit smaller than the 256M of <code>pc_year_price.csv</code> but to explore it, we don&#39;t need to have it in memory.</p><p>If we open the index we get</p><pre><code class="nohighlight hljs">julia&gt; idx = open_index(&quot;Postcode_Year_Price.index&quot;)
  NI key:0x1053522036384146 value: (LR left: NI key:0x2053522036384146 value:(Leaf data:0x000000000287c576 aux:0x0000000000000000) right: NI key:0x20594f3931315254 value:(Leaf data:0x000000000287c76e aux:0x0000000000000000))</code></pre><p>This is the root node of the first page. This example is rather shallow, but that is an artefact of the number of data Leafs.</p><p>We can search this idx </p><pre><code class="nohighlight hljs">julia&gt; get_leaf(idx, postcode_to_UInt64(&quot;YO8 9YB&quot;))
  NI key:0x30594f2038395942 value:(Leaf data:0x000000000ff15226 aux:0x0000000000000007)</code></pre><p>How quick is this? </p><pre><code class="nohighlight hljs">julia&gt; @benchmark get_leaf($idx, $postcode_to_UInt64(&quot;YO8 9YB&quot;))
 BenchmarkTools.Trial: 10000 samples with 1 evaluation.
@@ -82,17 +82,31 @@ BenchmarkTools.Trial: 10000 samples with 1 evaluation.
   ▂▅██████████████▆▅▅█████▇▅▄▅▄▃▃▂▂▂▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁ ▄
   32.5 μs         Histogram: frequency by time        46.5 μs &lt;
 
- Memory estimate: 9.31 KiB, allocs estimate: 247.
- ```
- 
- Certainly a lot slower (20x) than reading it straight from memory. 
- 
- But at least doesn&#39;t need the whole kvs in memory
-
- What we don&#39;t have, though, is the actual data. So let&#39;s write an accessor function for that.
-</code></pre><p>prices<em>for</em>postcode(idx, pcode, csvfile) = open(csvfile) do io prices<em>for</em>postcode(idx, pcode, io) end</p><p>function prices<em>for</em>postcode(idx, pcode, csvio::IO)     (offset, lines) = get(idx, postcode<em>to</em>UInt64(pcode), (0,0))     if lines &gt; 0         seek(csvio, offset)         return CSV.File(csvio; header=[&quot;postcode&quot;, &quot;year&quot;, &quot;price&quot;], limit=lines)     end end</p><pre><code class="nohighlight hljs">
-We write two functions, one which takes a filename and one which takes an IO. That way we can perform either a single lookup or multiple lookups without opening / closing the file (or use an IOBuffer instead of a file and go full circle!)
-
-The function finds a Leaf node. Remmbering the data is the offset and the aux the number of rows, we can then read the rows as CSV from the file.
-</code></pre><p>julia&gt; prices<em>for</em>postcode(idx, &quot;YO8 9YB&quot;, csvfile) 7-element CSV.File:  CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2000, price = 59500)  CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2000, price = 95000)  CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2009, price = 230000)  CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2014, price = 222000)  CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2014, price = 237000)  CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2018, price = 142500)  CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2021, price = 269950)</p><pre><code class="nohighlight hljs">
- We could also create a DataFrame from this data, if we were so inclined</code></pre><p>julia&gt; LR.prices<em>for</em>postcode(idx, &quot;YO8 9YB&quot;, csvfile) |&gt; DataFrame 7×3 DataFrame  Row │ postcode  year   price        │ String7   Int64  Int64   ─────┼─────────────────────────    1 │ YO8 9YB    2000   59500    2 │ YO8 9YB    2000   95000    3 │ YO8 9YB    2009  230000    4 │ YO8 9YB    2014  222000    5 │ YO8 9YB    2014  237000    6 │ YO8 9YB    2018  142500    7 │ YO8 9YB    2021  269950 ```</p><p>Creating this document revealed that node_range might be broken, so I won&#39;t write that up at the moment.</p><p>In the future work, I plan to incorprate SeaweedFS into the Index. So we could use this index along with Distributed. But that&#39;s another project!</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Index1024.jl</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.12 on <span class="colophon-date" title="Tuesday 18 January 2022 15:46">Tuesday 18 January 2022</span>. Using Julia version 1.7.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+ Memory estimate: 9.31 KiB, allocs estimate: 247.</code></pre><p>Certainly a lot slower (20x) than reading it straight from memory. </p><p>But at least doesn&#39;t need the whole kvs in memory</p><p>What we don&#39;t have, though, is the actual data. So let&#39;s write an accessor function for that.</p><pre><code class="nohighlight hljs">prices_for_postcode(idx, pcode, csvfile) = open(csvfile) do io prices_for_postcode(idx, pcode, io) end
+        
+function prices_for_postcode(idx, pcode, csvio::IO)
+    (offset, lines) = get(idx, postcode_to_UInt64(pcode), (0,0))
+    if lines &gt; 0
+        seek(csvio, offset)
+        return CSV.File(csvio; header=[&quot;postcode&quot;, &quot;year&quot;, &quot;price&quot;], limit=lines)
+    end
+end</code></pre><p>We write two functions, one which takes a filename and one which takes an IO. That way we can perform either a single lookup or multiple lookups without opening / closing the file (or use an IOBuffer instead of a file and go full circle!)</p><p>The function finds a Leaf node. Remmbering the data is the offset and the aux the number of rows, we can then read the rows as CSV from the file.</p><pre><code class="nohighlight hljs">julia&gt; prices_for_postcode(idx, &quot;YO8 9YB&quot;, csvfile)
+7-element CSV.File:
+ CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2000, price = 59500)
+ CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2000, price = 95000)
+ CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2009, price = 230000)
+ CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2014, price = 222000)
+ CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2014, price = 237000)
+ CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2018, price = 142500)
+ CSV.Row: (postcode = &quot;YO8 9YB&quot;, year = 2021, price = 269950)</code></pre><p>We could also create a DataFrame from this data, if we were so inclined</p><pre><code class="nohighlight hljs">julia&gt; LR.prices_for_postcode(idx, &quot;YO8 9YB&quot;, csvfile) |&gt; DataFrame
+7×3 DataFrame
+ Row │ postcode  year   price  
+     │ String7   Int64  Int64  
+─────┼─────────────────────────
+   1 │ YO8 9YB    2000   59500
+   2 │ YO8 9YB    2000   95000
+   3 │ YO8 9YB    2009  230000
+   4 │ YO8 9YB    2014  222000
+   5 │ YO8 9YB    2014  237000
+   6 │ YO8 9YB    2018  142500
+   7 │ YO8 9YB    2021  269950</code></pre><p>Creating this document revealed that <code>node_range</code> is broken, so I won&#39;t write that up at the moment.</p><p>In the future work, I plan to incorprate SeaweedFS into the Index. So we could use this index along with Distributed. But that&#39;s another project!</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Index1024.jl</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.12 on <span class="colophon-date" title="Tuesday 18 January 2022 15:52">Tuesday 18 January 2022</span>. Using Julia version 1.7.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
