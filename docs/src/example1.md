@@ -1,6 +1,7 @@
 layout: page
-title: "Example Indexing of a CSV file"
-permalink: /Index1024.jl/dev/example1/
+title: "PAGE TITLE"
+Example Indexing of a CSV file
+==============================
 
 # The Data
 
