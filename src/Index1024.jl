@@ -147,8 +147,8 @@ end
 
 """
     search(idx::Index, search_key::UInt64)::Union{UInt64, Nothing}
-Search the given index for a given search_key returning a Tuple of the previously stored value
-If the search_key is not found, return nothing
+Search the given index for a given `search_key` returning a Tuple of the previously stored value
+If the `search_key` is not found, return `nothing`
 # Arguments
 - `idx` Index to use
 - `search_key` UInt64 key to search for
