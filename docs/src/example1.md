@@ -1,5 +1,3 @@
-layout: page
-title: "PAGE TITLE"
 Example Indexing of a CSV file
 ==============================
 
