@@ -1,5 +1,6 @@
-Example Indexing of a CSV file
-==============================
+layout: page
+title: "Example Indexing of a CSV file"
+permalink: /Index1024.jl/dev/example1/
 
 # The Data
 
@@ -196,7 +197,7 @@ end
 
 We write two functions, one which takes a filename and one which takes an IO. That way we can perform either a single lookup or multiple lookups without opening / closing the file (or use an IOBuffer instead of a file and go full circle!)
 
-The function finds a Leaf node. Remmbering the data is the offset and the aux the number of rows, we can then read the rows as CSV from the file.
+The function finds a Leaf node. Remembering the data is the offset and the aux the number of rows, we can then read the rows as CSV from the file.
 
 ```
 julia> prices_for_postcode(idx, "YO8 9YB", csvfile)
