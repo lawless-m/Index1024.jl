@@ -4,7 +4,9 @@ Example Indexing of a CSV file
 # The Data
 
 The CSV file I wish to index contains the data from the UK Land Registry. 
-https://www.gov.uk/guidance/about-the-price-paid-data
+
+[https://www.gov.uk/guidance/about-the-price-paid-data](https://www.gov.uk/guidance/about-the-price-paid-data)
+
 This records the value of every house sale in England and Wales. I have gathered the data from 2000 onwards and extracted the following dataset. The postcode, year and price of every transaction.
 
 What I want is to be able to extract the list of year / price entries for a particular postcode.
@@ -37,7 +39,7 @@ In the Index I can store the Named Tuple `(data:UInt64, aux:UInt64)` for each `U
 
 So what I shall do is to store the file offset of the first postcode entry in the data and the number of rows in the aux.
 
-It just so happens that the postcode is, at most, 7 characters long, so this can be converted into a UInt64 with a byte spare the the tag.
+It just so happens that the postcode is, at most, 7 characters long, so this can be converted into a UInt64 with a byte spare for the tag.
 
 By turning the postcodes into a fixed format
 from
@@ -119,7 +121,7 @@ julia> create_kvs("pc_year_price.csv")
 we get something like the following Dictionary
 
 ```
-Dict{UInt64, NamedTuple{(:data, :aux), Tuple{UInt64, UInt64}}} with 4 entries:
+Dict{UInt64, NamedTuple{(:data, :aux), Tuple{UInt64, UInt64}}} with 1424321 entries:
   0x00594f2038395942 => (data = 0x00000000000000e6, aux = 0x0000000000000007)
   0x00594f2038395945 => (data = 0x0000000000000136, aux = 0x0000000000000009)
   ⋮
@@ -133,7 +135,7 @@ The keys are the encoded postcodes e.g.
 
 Which is the format of the keyset we need to build the actual index.
 
-That part of the process is in the modules
+That part of the process is in the module
 
 ```
 julia> @time build_index_file("Postcode_Year_Price.index", create_kvs("pc_year_price.csv"))
@@ -176,11 +178,11 @@ BenchmarkTools.Trial: 10000 samples with 1 evaluation.
  Memory estimate: 9.31 KiB, allocs estimate: 247.
 ```
  
- Certainly a lot slower (20x) than reading it straight from memory. 
+Certainly a lot slower (20x) than reading it straight from memory. 
  
- But at least doesn't need the whole kvs in memory
+But at least it doesn't need the whole kvs in memory
 
- What we don't have, though, is the actual data. So let's write an accessor function for that.
+What we don't have, though, is the actual data. So let's write an accessor function for that.
 
 ```
 prices_for_postcode(idx, pcode, csvfile) = open(csvfile) do io prices_for_postcode(idx, pcode, io) end
@@ -212,7 +214,7 @@ julia> prices_for_postcode(idx, "YO8 9YB", csvfile)
 
  We could also create a DataFrame from this data, if we were so inclined
 ```
-julia> LR.prices_for_postcode(idx, "YO8 9YB", csvfile) |> DataFrame
+julia> prices_for_postcode(idx, "YO8 9YB", csvfile) |> DataFrame
 7×3 DataFrame
  Row │ postcode  year   price  
      │ String7   Int64  Int64  
