@@ -105,15 +105,15 @@ key(n::NodeInfo) = key(n.tagged_key)
 key(v::UInt) = UInt64(v) & ~mask
 
 """
-    build_page(ks, kvs, leaf_tag)
+    build_page(ks, kvs, terminal_tag)
 Using the given keys `ks` use the key/values in `ks` to generate the tree for this page. 
 The page is the same structure whether the terminals are leafs or "pointers"
 # Arguments
 - `ks` UInt64 keys to write in the terminals (a fixed size per page)
 - `kvs` the key / value dictionary containing all of the UInt64 => DataAux pairs
-- `leaf_tag` the UInt8 Tag applied to the keys of the terminals
+- `terminal_tag` the UInt8 Tag applied to the keys of the terminals
 """
-function build_page(ks, kvs, leaf_tag)
+function build_page(ks, kvs, terminal_tag)
     next2pow::Int = Int(1 << (64 - (leading_zeros(length(ks)-1))+1))
     nodes = Vector{NodeInfo}(undef, next2pow-1)
     kstep = 1
@@ -122,7 +122,7 @@ function build_page(ks, kvs, leaf_tag)
         if k > length(ks)
             nodes[pk] = NodeInfo(tag(empty, ff), Empty())
         else
-            nodes[pk] = NodeInfo(tag(leaf_tag, ks[k]), Leaf(kvs[ks[k]].data, kvs[ks[k]].aux))
+            nodes[pk] = NodeInfo(tag(terminal_tag, ks[k]), Leaf(kvs[ks[k]].data, kvs[ks[k]].aux))
         end
         k += kstep
     end
@@ -280,7 +280,7 @@ function read(io::IO, ::Type{NodeInfo})
 end
 
 """
-    write_pages(io, sorted_keys, kvs, terminal_tag; leafcount=16)
+    write_pages(io, sorted_keys, kvs, terminal_tag; terminal_count=16)
 Write the current depth of the tree to disk, depth first.
 Returns the keys at the root of each page in order and generates the kvs to use as DataAux values
 # Arguments
@@ -290,14 +290,15 @@ Returns the keys at the root of each page in order and generates the kvs to use 
 - `terminal_tag` Tag the terminals with `terminal_tag`` (which will be either `leaf` or `topage`)
 - `terminalcount` write this many terminals, which might be more than the number of keys
 """
-function write_pages(io, sorted_keys, kvs, terminal_tag; terminalcount=16)
-    node_count = round(Int, ceil(length(sorted_keys)/(terminalcount)))
+function write_pages(io, sorted_keys, kvs, terminal_tag; terminal_count=16)
+    node_count = round(Int, ceil(length(sorted_keys)/(terminal_count)))
     next_sorted_keys = Vector{UInt64}(undef, node_count)
     next_kvs = typeof(kvs)()
     for i in 0:node_count-1
-        tstart = terminalcount * i
-        sks = @views length(sorted_keys) < tstart+terminalcount ? sorted_keys[tstart+1:end] : sorted_keys[tstart+1:tstart+terminalcount]
-        next_sorted_keys[i+1] = sks[end]
+        tstart = terminal_count * i + 1
+        tend = min(length(sorted_keys), tstart + terminal_count -1)
+        sks = @views sorted_keys[tstart:tend]
+        next_sorted_keys[i+1] = sks[end] # this repeats if not enough sks exist for all the terminals
         next_kvs[sks[end]] = (data=position(io), aux=0)
         write(io, build_page(sks, kvs, terminal_tag))
     end
@@ -321,7 +322,6 @@ The Leafs are sorted by the key values of the kvs.
 - `io::IO` descriptor for writing (so you can use IOBuffer if desired)
 - `kvs` Dict{UInt64, T}() where T is the type of the leaf, by default DataAux - might expand in future
 - `meta::Vector{AbstractString}` vector of strings to add meta data
-
 """
 build_index_file(filename::AbstractString, kvs; meta=String[]) = open(filename, "w+") do io build_index_file(io::IO, kvs; meta) end
 
