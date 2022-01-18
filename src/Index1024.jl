@@ -289,8 +289,8 @@ Returns the keys at the root of each page in order and generates the kvs to use 
 - `io` - write into this IO
 - `sorted_keys` keys to use in the terminals, in order
 - `kvs` Dict of the values to use in the terminals
-- `terminal_tag` Tag the terminals with `terminal_tag`` (which will be either `leaf` or `topage`)
-- `terminalcount` write this many terminals, which might be more than the number of keys
+- `terminal_tag` Tag the terminals with `terminal_tag` (which will be either `leaf` or `topage`)
+- `terminal_count` write this many terminals, which might be more than the number of keys
 """
 function write_pages(io, sorted_keys, kvs, terminal_tag; terminal_count=16)
     node_count = round(Int, ceil(length(sorted_keys)/(terminal_count)))
