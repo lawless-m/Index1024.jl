@@ -247,8 +247,10 @@ end
 """
     node_range(idx::Index, min_key, max_key)
 Gather all the Leafs in a given `idx` where `min_key <= key <= max_key`
+# CURRENTLY BROKEN
 """
 function node_range(idx::Index, min_key, max_key)
+throw("node_range is Broken")
     page = root_node(idx)
     range_leafs, unseen_pages = page_nodes(idx, page, min_key, max_key)
     

@@ -129,7 +129,7 @@ Dict{UInt64, NamedTuple{(:data, :aux), Tuple{UInt64, UInt64}}} with 4 entries:
 
 The keys are the encoded postcodes e.g.
 
-`"AL10 0AB"` becomes `0x00414c3130304142` and at offset 0x536 in the CSV files, has 27 rows of data
+`"AL10 0AB"` becomes `0x00414c3130304142` and at offset 0x536 in the CSV files, has 0x27 rows of data
 
 Which is the format of the keyset we need to build the actual index.
 
@@ -147,9 +147,7 @@ So now in my pwd() is the index file
 
 `42453022 Jan 18 13:56 Postcode_Year_Price.index`
 
-At 41M it is only a bit smaller than the 256M of pc_year_price.csv but to explore it, we don't need to have it in memory.
-
-What we do need, though, are some accessor functions. 
+At 41M it is only a bit smaller than the 256M of `pc_year_price.csv` but to explore it, we don't need to have it in memory.
 
 If we open the index we get
 ```
@@ -176,7 +174,7 @@ BenchmarkTools.Trial: 10000 samples with 1 evaluation.
   32.5 μs         Histogram: frequency by time        46.5 μs <
 
  Memory estimate: 9.31 KiB, allocs estimate: 247.
- ```
+```
  
  Certainly a lot slower (20x) than reading it straight from memory. 
  
@@ -228,7 +226,7 @@ julia> LR.prices_for_postcode(idx, "YO8 9YB", csvfile) |> DataFrame
    7 │ YO8 9YB    2021  269950
 ```
 
-Creating this document revealed that node_range might be broken, so I won't write that up at the moment.
+Creating this document revealed that `node_range` is broken, so I won't write that up at the moment.
 
 In the future work, I plan to incorprate SeaweedFS into the Index. So we could use this index along with Distributed. But that's another project!
 
