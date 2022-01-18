@@ -172,9 +172,11 @@ function get(idx::Index, search_key, default)
     da === nothing ? default : da
 end
 
+# use io marks to manage the id position
 rewind(idx::Index) = rewind(idx.io)
 rewind(io::IO) = begin reset(io); mark(io); end
 
+# move the pointer to the start of the index
 function root_node(idx::Index)
     rewind(idx.io)
     read(idx.io, NodeInfo)
