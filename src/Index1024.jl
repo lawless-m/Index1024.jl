@@ -4,7 +4,15 @@ import Base.read, Base.write
 
 using Printf
 
-export Index, search, build_index_file, open_index, get, get_node, get_leaf, node_range
+# for use by clients
+# creating Index
+export Index, DataAux, build_index_file
+
+# using Index
+export search, get, open_index, node_range, todot
+
+# for use by libraries
+export build_page, page_nodes, get_leaf, write_pages
 
 const mask = 0xf000000000000000
 const shift = 60
@@ -28,9 +36,22 @@ Nextblock multiple of 0x400
 000000 page1
 
 ==#
-
+"""
+    DataAux
+Type of the leaf data. (data=UInt64, aux=UInt64)
+# Named elements
+`data::UInt64` - user supplied
+`aux::UInt64` - user supplied
+"""
 const DataAux = typeof((data=zero(UInt64), aux=zero(UInt64)))
 
+"""
+    Index
+struct to hold the data associated with a particular `Index`
+# Properties
+`meta::Vector{String}` - user defined meta-data to save in the index file
+`io::IO` - the file handle of the index used to navigate
+"""
 struct Index
     meta::Vector{String}
     io::IO
@@ -64,7 +85,7 @@ struct Leaf <: Node
     aux::UInt64
 end
 
-struct Empty <: Node end
+    struct Empty <: Node end
 
 struct NodeInfo
     tagged_key::UInt64 # threshold or leaf value - determined by tag
@@ -83,6 +104,15 @@ tag(v::UInt) = UInt16((UInt64(v) & mask) >> shift)
 key(n::NodeInfo) = key(n.tagged_key)
 key(v::UInt) = UInt64(v) & ~mask
 
+"""
+    build_page(ks, kvs, leaf_tag)
+Using the given keys `ks` use the key/values in `ks` to generate the tree for this page. 
+The page is the same structure whether the terminals are leafs or "pointers"
+# Arguments
+`ks` - UInt64 keys to write in the terminals (a fixed size per page)
+`kvs` - the key / value dictionary containing all of the UInt64 => DataAux pairs
+`leaf_tag` - the UInt8 Tag applied to the keys of the terminals
+"""
 function build_page(ks, kvs, leaf_tag)
     next2pow::Int = Int(1 << (64 - (leading_zeros(length(ks)-1))+1))
     nodes = Vector{NodeInfo}(undef, next2pow-1)
@@ -120,20 +150,23 @@ end
 Search the given index for a given search_key returning a Tuple of the previously stored value
 If the search_key is not found, return nothing
 """
-search(idx::Index, search_key) = get_node(idx, UInt64(search_key))
+function search(idx::Index, search_key)
+    node = get_leaf(idx, search_key)
+    node === nothing ? nothing : (; data=node.value.data, aux=node.value.aux)
+end
 
 import Base.get
 """
     get(idx::Index, search_key, default)
-Search the given index for a given search_key returning a Tuple of the previously stored value
-If the search_key is not found, return the supplied default
+Search the given index for a given `search_key` returning a Tuple of the previously stored value or the `default`
+# Arguments
+`idx` - Index to search
+`search_key` - untagged UInt64 key to search for
+`default` - what to return if the key is not found
 """
 function get(idx::Index, search_key, default)
-    tpl = get_node(idx, UInt64(search_key))
-    if tpl === nothing
-        return default
-    end
-    return tpl
+    da = search(idx, UInt64(search_key))
+    da === nothing ? default : da
 end
 
 rewind(idx::Index) = rewind(idx.io)
@@ -144,28 +177,34 @@ function root_node(idx::Index)
     read(idx.io, NodeInfo)
 end
 
+"""
+    get_leaf(idx::Index, search_key)
+Search the tree for a particular leaf node and return it (or nothing)
+# Arguments
+`idx` - and Index to search
+`search_key` - an untagged UInt64 key to seach for
+"""
 function get_leaf(idx::Index, search_key)
-    page = node = root_node(idx::Index)
+    node = root_node(idx::Index)
     while tag(node) == onpage
         node = search_key <= key(node) ? node.value.left : node.value.right
         if tag(node) == topage
             seek(idx.io, node.value.data)
-            page = node = read(idx.io, NodeInfo)
+            node = read(idx.io, NodeInfo)
         end
     end
-    if tag(node) == leaf
-        return (node, page)
-    end
-    return (nothing, page)
+    # not always a key match, just the last leaf found
+    tag(node) == leaf && key(node) == search_key ? node : nothing
 end
 
-function get_node(idx::Index, search_key)
-    (node, page) = get_leaf(idx, search_key)
-    if node !== nothing && key(node) == search_key
-        return (data=node.value.data, aux=node.value.aux)
-    end
-end
-
+"""
+    page_nodes(idx, page, min_key, max_key)
+Walk the entire page, a return the leafs and topage Nodes in separate lists
+# Arguments
+`idx` Index of the tree, needed for io
+`page` first node of the given page
+`min_key`, `max_key` range of keys for the leafs wanted
+"""
 function page_nodes(idx, page, min_key, max_key)
 
     nodes = NodeInfo[]
@@ -200,6 +239,10 @@ function page_nodes(idx, page, min_key, max_key)
     leafs, pages
 end
 
+"""
+    node_range(idx::Index, min_key, max_key)
+Gather all the leafs in a given `idx` where `min_key <= key <= max_key`
+"""
 function node_range(idx::Index, min_key, max_key)
     page = root_node(idx)
     range_leafs, unseen_pages = page_nodes(idx, page, min_key, max_key)
@@ -233,16 +276,27 @@ function read(io::IO, ::Type{NodeInfo})
     return NodeInfo(tagged_key, read(io, Leaf))
 end
 
-function write_pages(io, sorted_keys, kvs, leaf_tag; leafcount=16)
-    node_count = round(Int, ceil(length(sorted_keys)/(leafcount)))
+"""
+    write_pages(io, sorted_keys, kvs, terminal_tag; leafcount=16)
+Write the current depth of the tree to disk, depth first.
+Returns the keys at the root of each page in order and generates the kvs to use as DataAux values
+# Arguments
+`io` - write into this IO
+`sorted_keys` - keys to use in the terminals, in order
+`kvs` - Dict of the values to use in the terminals
+`terminal_tag` - Tag the terminals with terminal_tag (which will be either leaf or topage)
+`terminalcount` - write this many terminals, which might be more than the number of keys
+"""
+function write_pages(io, sorted_keys, kvs, terminal_tag; terminalcount=16)
+    node_count = round(Int, ceil(length(sorted_keys)/(terminalcount)))
     next_sorted_keys = Vector{UInt64}(undef, node_count)
     next_kvs = typeof(kvs)()
     for i in 0:node_count-1
-        lstart = leafcount * i
-        sks = @views length(sorted_keys) < lstart+leafcount ? sorted_keys[lstart+1:end] : sorted_keys[lstart+1:lstart+leafcount]
+        tstart = terminalcount * i
+        sks = @views length(sorted_keys) < tstart+terminalcount ? sorted_keys[tstart+1:end] : sorted_keys[tstart+1:tstart+terminalcount]
         next_sorted_keys[i+1] = sks[end]
         next_kvs[sks[end]] = (data=position(io), aux=0)
-        write(io, build_page(sks, kvs, leaf_tag))
+        write(io, build_page(sks, kvs, terminal_tag))
     end
 
     next_sorted_keys, next_kvs
@@ -258,13 +312,15 @@ end
 """
     build_index_file(io::IO, kvs; meta=String[])
     build_index_file(filename::AbstractString, kvs; meta=String[])
-#Arguments
+# Arguments
 `io::IO` descriptor for writing (so you can use IOBuffer if desired)
+`kvs` - Dict{UInt64, T}() where T is the type of the leaf, by default DataAux - might expand in future
 `meta::Vector{AbstractString}` vector of strings to add meta data
 Create the on-disk representation of the index of the kvs Dict.
-The Tree's Leaves are sorted by the key value of the kvs and store the kvs[key] 
-All keys and values are all converted to UInt64.
+The Leafs are sorted by the key values of the kvs.
 """
+build_index_file(filename::AbstractString, kvs; meta=String[]) = open(filename, "w+") do io build_index_file(io::IO, kvs; meta) end
+
 function build_index_file(io::IO, kvs; meta=String[])
     startpos = position(io)
     write(io, zero(Int64)) # middle of page where root node starts
@@ -281,16 +337,10 @@ function build_index_file(io::IO, kvs; meta=String[])
     return size
 end
 
-function build_index_file(filename::AbstractString, kvs; meta=String[])
-    open(filename, "w+") do io
-        build_index_file(io::IO, kvs; meta)
-    end
-end
-
 """
     open_index(filename::AbstractString)::Index
     open_index(io::IO)::Index
-Create an Index struct on which one can perform searches using a previously created Index file.
+Open an Index struct from file on which one can perform searches.
 """
 function open_index(io::IO)
     root = read(io, Int64)
@@ -305,23 +355,24 @@ open_index(filename::AbstractString) = open_index(open(filename, "r"))
 import Base.show
 
 function show(io::IO, lr::LR)
-    print(io, " (Left:", lr.left)
-    print(io, " Right:", lr.right)
+    print(io, " (LR left:", lr.left)
+    print(io, " right:", lr.right)
     print(io, ")")
 end
 
 function show(io::IO, lr::Leaf)
-    print(io, " Data:")
+    print(io, "(Leaf data:")
     show(io, lr.data)
-    print(io, " Aux:")
+    print(io, " aux:")
     show(io, lr.aux)
+    print(io, ")")
 end
 
 function show(io::IO, ni::NodeInfo)
-    print(io, " Key:")
+    print(io, " NI key:")
     show(io, ni.tagged_key)
 
-    print(io, " Node:")
+    print(io, " value:")
     show(io, ni.value)
 end
 
@@ -344,6 +395,10 @@ function todot(io::IO, ni::NodeInfo, level)
     end
 end
 
+"""
+    todot(idx::Index)
+Output the tree in GraphViz dot format. Used for debugging and only includes the root node.
+"""
 function todot(idx::Index)
     rewind(idx)
     buff = IOBuffer()
